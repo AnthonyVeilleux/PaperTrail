@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Google Sans', Arial, sans-serif; font-size: 14px; color: #202124; background: #fff; }
+    
+    .header { padding: 16px; border-bottom: 1px solid #e8eaed; background: #fff; }
+    .header-title { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+    
+    .search-input { width: 100%; padding: 10px 12px 10px 36px; background: #f1f3f4; border: 1px solid #e8eaed; border-radius: 8px; font-size: 13px; outline: none; margin-bottom: 12px; }
+    .search-input:focus { background: #fff; border-color: #1a73e8; }
+    
+    .filter-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; background: #f1f3f4; padding: 4px; border-radius: 8px; }
+    .filter-tab { padding: 6px 8px; background: transparent; border: none; border-radius: 6px; font-size: 12px; font-weight: 500; color: #5f6368; cursor: pointer; }
+    .filter-tab.active { background: #fff; color: #1a73e8; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    
+    .content { padding: 12px; max-height: calc(100vh - 250px); overflow-y: auto; }
+    
+    .project { margin-bottom: 8px; }
+    .project-header { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 8px; cursor: pointer; }
+    .project-header:hover { background: #f8f9fa; }
+    .project-name { font-size: 13px; font-weight: 600; flex: 1; }
+    
+    .tags-list { margin-left: 24px; padding-left: 8px; border-left: 2px solid #f1f3f4; margin-top: 4px; }
+    .tag-item { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; border-radius: 6px; cursor: pointer; margin-bottom: 2px; }
+    .tag-item:hover { background: #f8f9fa; }
+    
+    .tag-main { display: flex; align-items: center; gap: 8px; flex: 1; }
+    .tag-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .tag-name { font-size: 13px; font-weight: 500; flex: 1; }
+    .tag-count-badge { font-size: 11px; color: #5f6368; }
+    
+    .tag-actions { display: none; gap: 2px; }
+    .tag-item:hover .tag-actions { display: flex; }
+    .tag-action-btn { padding: 4px; background: transparent; border: none; cursor: pointer; border-radius: 4px; }
+    .tag-action-btn:hover { background: #e8eaed; }
+    .tag-action-btn.delete:hover { background: #fce8e6; }
+    
+    .footer { padding: 12px; border-top: 1px solid #e8eaed; }
+    .footer-hint { font-size: 11px; color: #5f6368; text-align: center; padding: 8px; background: #e8f0fe; border-radius: 8px; }
+    
+    .loading { text-align: center; padding: 40px 20px; color: #5f6368; }
+    .spinner { width: 40px; height: 40px; border: 3px solid #e8eaed; border-top-color: #1a73e8; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 16px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    
+    .empty-state { text-align: center; padding: 40px 20px; color: #5f6368; }
+    .empty-title { font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+    
+    .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.3); z-index: 1000; align-items: center; justify-content: center; }
+    .modal-overlay.show { display: flex; }
+    .modal { background: #fff; border-radius: 16px; max-width: 400px; width: 90%; max-height: 90vh; overflow-y: auto; }
+    .modal-header { padding: 20px; border-bottom: 1px solid #e8eaed; display: flex; justify-content: space-between; align-items: center; }
+    .modal-title { font-size: 18px; font-weight: 600; }
+    .modal-body { padding: 20px; }
+    .modal-footer { padding: 16px 20px; border-top: 1px solid #e8eaed; background: #f8f9fa; display: flex; justify-content: space-between; gap: 12px; }
+    
+    .form-group { margin-bottom: 16px; }
+    .form-label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+    .form-input { width: 100%; padding: 10px 12px 10px 32px; background: #f8f9fa; border: 1px solid #e8eaed; border-radius: 8px; font-size: 13px; outline: none; }
+    .input-prefix { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #5f6368; font-weight: 600; }
+    
+    .color-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+    .color-option { aspect-ratio: 1; border-radius: 8px; border: 2px solid transparent; cursor: pointer; }
+    .color-option.selected { border-color: #1a73e8; }
+    
+    .btn { padding: 10px 20px; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .btn-primary { background: #1a73e8; color: #fff; }
+    .btn-primary:hover { background: #1557b0; }
+    .btn-secondary { background: #fff; color: #5f6368; border: 1px solid #dadce0; }
+    .btn-danger { background: #fff; color: #d93025; border: 1px solid #f28b82; }
+    .btn-danger:hover { background: #fce8e6; }
+    
+    .tag-count { background: #f1f3f4; padding: 2px 8px; border-radius: 12px; font-size: 11px; color: #5f6368; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="header-title">🏷️ Paper Trail</div>
+    <input type="text" class="search-input" id="searchInput" placeholder="Search tags...">
+    <div class="filter-tabs">
+      <button class="filter-tab" data-filter="all" onclick="setFilter('all')">All</button>
+      <button class="filter-tab active" data-filter="projects" onclick="setFilter('projects')">Projects</button>
+      <button class="filter-tab" data-filter="date" onclick="setFilter('date')">Date</button>
+      <button class="filter-tab" data-filter="global" onclick="setFilter('global')">Global</button>
+    </div>
+  </div>
+
+  <div class="content" id="content">
+    <div class="loading">
+      <div class="spinner"></div>
+      <div>Loading tags...</div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <div class="footer-hint">💡 Type <strong>#tagname</strong> in your document</div>
+  </div>
+
+  <!-- Edit Modal -->
+  <div class="modal-overlay" id="editModal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">Edit Tag: <span id="editTagName"></span></div>
+        <button onclick="closeEditModal()" style="border:none;background:none;cursor:pointer;font-size:20px;">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Tag Name *</label>
+          <div style="position:relative;">
+            <span class="input-prefix">#</span>
+            <input type="text" class="form-input" id="editTagNameInput" maxlength="50">
+          </div>
+          <div style="text-align:right;font-size:11px;color:#5f6368;margin-top:4px;">
+            <span id="editNameCount">0/50</span>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Color</label>
+          <div class="color-grid" id="editColorGrid"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-danger" onclick="confirmDelete()">Delete</button>
+        <div style="display:flex;gap:12px;">
+          <button class="btn btn-secondary" onclick="closeEditModal()">Cancel</button>
+          <button class="btn btn-primary" onclick="saveTagChanges()">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete Modal -->
+  <div class="modal-overlay" id="deleteModal">
+    <div class="modal">
+      <div class="modal-body" style="text-align:center;padding:32px 20px;">
+        <div style="font-size:48px;margin-bottom:16px;">⚠️</div>
+        <h3 style="font-size:20px;margin-bottom:12px;">Delete Tag?</h3>
+        <p style="color:#5f6368;margin-bottom:16px;">Delete <strong id="deleteTagName"></strong>?</p>
+        <div style="background:#fce8e6;border:2px solid #f28b82;border-radius:8px;padding:12px;margin-bottom:16px;">
+          <p style="font-size:12px;color:#5f6368;">This tag is used in <strong id="deleteTagCount">0</strong> items<br>This action cannot be undone</p>
+        </div>
+      </div>
+      <div class="modal-footer" style="flex-direction:column;">
+        <button class="btn btn-danger" style="width:100%;" onclick="executeDelete()">Delete Tag</button>
+        <button class="btn btn-secondary" style="width:100%;" onclick="closeDeleteModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentFilter = 'projects';
+    let allTags = null;
+    let currentTag = null;
+    let expandedProjects = [];
+
+    const colors = [
+      { value: '#1A73E8', name: 'Blue' },
+      { value: '#34A853', name: 'Green' },
+      { value: '#FBBC04', name: 'Yellow' },
+      { value: '#EA4335', name: 'Red' },
+      { value: '#9334E9', name: 'Purple' },
+      { value: '#0891B2', name: 'Cyan' }
+    ];
+
+    // Load tags on startup
+    window.onload = function() {
+      console.log('Loading tags...');
+      loadTags();
+    };
+
+    function loadTags() {
+      console.log('Calling getAllTags...');
+      google.script.run
+        .withSuccessHandler(function(data) {
+          console.log('Success! Received data:', data);
+          renderTags(data);
+        })
+        .withFailureHandler(function(error) {
+          console.error('Error:', error);
+          showError(error);
+        })
+        .getAllTags();
+    }
+
+    function renderTags(data) {
+      console.log('Rendering tags:', data);
+      allTags = data;
+      const content = document.getElementById('content');
+      
+      if (currentFilter === 'projects') {
+        renderProjectsView(data.projects);
+      } else {
+        content.innerHTML = '<div class="empty-state"><div class="empty-title">Coming Soon</div></div>';
+      }
+    }
+
+    function renderProjectsView(projects) {
+      const content = document.getElementById('content');
+      
+      if (!projects || projects.length === 0 || !projects[0].tags || projects[0].tags.length === 0) {
+        content.innerHTML = `
+          <div class="empty-state">
+            <div style="font-size:48px;margin-bottom:12px;">🏷️</div>
+            <div class="empty-title">No Tags Found</div>
+            <p style="font-size:12px;color:#80868b;margin-top:8px;">Start typing #tagname in your document</p>
+            <button onclick="loadTags()" style="margin-top:16px;padding:8px 16px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer;">Refresh Tags</button>
+          </div>
+        `;
+        return;
+      }
+
+      let html = '';
+      projects.forEach(project => {
+        const isExpanded = expandedProjects.includes(project.name);
+        const totalCount = project.tags ? project.tags.reduce((sum, tag) => sum + tag.count, 0) : 0;
+        
+        html += `
+          <div class="project">
+            <div class="project-header" onclick="toggleProject('${project.name}')">
+              <span style="font-size:16px;">${isExpanded ? '📂' : '📁'}</span>
+              <div class="project-name">${project.name} <span class="tag-count">${totalCount}</span></div>
+            </div>
+            ${isExpanded && project.tags ? renderProjectTags(project) : ''}
+          </div>
+        `;
+      });
+
+      content.innerHTML = html;
+    }
+
+    function renderProjectTags(project) {
+      if (!project.tags || project.tags.length === 0) {
+        return '<div class="tags-list"><p style="padding:20px;color:#80868b;font-size:12px;">No tags yet</p></div>';
+      }
+
+      let html = '<div class="tags-list">';
+      project.tags.forEach(tag => {
+        html += `
+          <div class="tag-item">
+            <div class="tag-main">
+              <div class="tag-dot" style="background-color:${tag.color}"></div>
+              <span class="tag-name">#${tag.name}</span>
+              <span class="tag-count-badge">${tag.count}</span>
+            </div>
+            <div class="tag-actions">
+              <button class="tag-action-btn" onclick="openEditModal('${tag.name}', '${project.id}', event)" title="Edit">✏️</button>
+              <button class="tag-action-btn delete" onclick="openDeleteModal('${tag.name}', '${project.id}', event)" title="Delete">🗑️</button>
+            </div>
+          </div>
+        `;
+      });
+      html += '</div>';
+      return html;
+    }
+
+    function toggleProject(projectName) {
+      const index = expandedProjects.indexOf(projectName);
+      if (index > -1) {
+        expandedProjects.splice(index, 1);
+      } else {
+        expandedProjects.push(projectName);
+      }
+      renderTags(allTags);
+    }
+
+    function setFilter(filter) {
+      currentFilter = filter;
+      document.querySelectorAll('.filter-tab').forEach(tab => {
+        tab.classList.remove('active');
+        if (tab.dataset.filter === filter) {
+          tab.classList.add('active');
+        }
+      });
+      if (allTags) renderTags(allTags);
+    }
+
+    function openEditModal(tagName, projectId, event) {
+      if (event) event.stopPropagation();
+      currentTag = { name: tagName, projectId: projectId };
+      
+      document.getElementById('editTagName').textContent = '#' + tagName;
+      document.getElementById('editTagNameInput').value = tagName;
+      document.getElementById('editNameCount').textContent = tagName.length + '/50';
+      
+      google.script.run
+        .withSuccessHandler(function(metadata) {
+          const colorGrid = document.getElementById('editColorGrid');
+          colorGrid.innerHTML = colors.map(c => `
+            <div class="color-option ${metadata.color === c.value ? 'selected' : ''}" 
+                 style="background-color:${c.value}" 
+                 onclick="selectColor('${c.value}')"></div>
+          `).join('');
+          
+          document.getElementById('editModal').classList.add('show');
+        })
+        .getTagMetadata(tagName);
+    }
+
+    function closeEditModal() {
+      document.getElementById('editModal').classList.remove('show');
+    }
+
+    function selectColor(color) {
+      document.querySelectorAll('.color-option').forEach(opt => opt.classList.remove('selected'));
+      event.target.classList.add('selected');
+    }
+
+    function saveTagChanges() {
+      const newName = document.getElementById('editTagNameInput').value.trim();
+      const selectedColor = document.querySelector('.color-option.selected');
+      
+      if (!newName) {
+        alert('Tag name is required');
+        return;
+      }
+      
+      const updates = {
+        tagName: newName,
+        color: selectedColor ? window.getComputedStyle(selectedColor).backgroundColor : null
+      };
+      
+      google.script.run
+        .withSuccessHandler(function(result) {
+          if (result.success) {
+            closeEditModal();
+            setTimeout(loadTags, 500);
+          } else {
+            alert('Error: ' + result.error);
+          }
+        })
+        .updateTag(currentTag.name, updates);
+    }
+
+    function confirmDelete() {
+      closeEditModal();
+      openDeleteModal(currentTag.name, currentTag.projectId);
+    }
+
+    function openDeleteModal(tagName, projectId, event) {
+      if (event) event.stopPropagation();
+      currentTag = { name: tagName, projectId: projectId };
+      
+      const project = allTags.projects.find(p => p.id === projectId);
+      const tag = project?.tags.find(t => t.name === tagName);
+      
+      document.getElementById('deleteTagName').textContent = '#' + tagName;
+      document.getElementById('deleteTagCount').textContent = tag?.count || 0;
+      document.getElementById('deleteModal').classList.add('show');
+    }
+
+    function closeDeleteModal() {
+      document.getElementById('deleteModal').classList.remove('show');
+    }
+
+    function executeDelete() {
+      google.script.run
+        .withSuccessHandler(function(result) {
+          closeDeleteModal();
+          if (result.success) {
+            setTimeout(loadTags, 500);
+          } else {
+            alert('Error: ' + result.error);
+          }
+        })
+        .deleteTag(currentTag.name);
+    }
+
+    function showError(error) {
+      console.error('Error:', error);
+      document.getElementById('content').innerHTML = `
+        <div class="empty-state">
+          <div class="empty-title">Error Loading Tags</div>
+          <p style="font-size:12px;color:#80868b;margin-top:8px;">${error.message || error}</p>
+          <button onclick="loadTags()" style="margin-top:16px;padding:8px 16px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer;">Try Again</button>
+        </div>
+      `;
+    }
+
+    document.getElementById('editTagNameInput').addEventListener('input', function(e) {
+      document.getElementById('editNameCount').textContent = e.target.value.length + '/50';
+    });
+  </script>
+</body>
+</html>
