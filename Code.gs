@@ -803,3 +803,58 @@ function clearAllData() {
     ui.alert('Success', 'All tag data has been cleared.', ui.ButtonSet.OK);
   }
 }
+
+/*
+  Define and create a new unique tag and add it the first project and list of global tags.
+  If it already exists, just return existing metadata.
+*/
+function defineAndCreateNewTag(tagName){
+  try{
+    tagName = (tagName || '').toString().trim();
+    if (!tagName) return { success: false, error: 'Empty tag name' };
+
+    // Ensure metadata exists (creates if missing)
+    var metadata = getOrCreateTagMetadata(tagName);
+
+    var properties = PropertiesService.getDocumentProperties();
+    var projectsData = properties.getProperty('projects');
+    var projects = projectsData ? JSON.parse(projectsData) : getDefaultProjects();
+
+    // Check if tag already exists in any project
+    var exists = projects.some(function(project) {
+      return (project.tags || []).some(function(t) { return t.name === tagName; });
+    });
+
+    // Add to first project if not present
+    if (!exists) {
+      if (projects.length === 0) {
+        projects = [createDefaultProject()];
+      }
+      projects[0].tags = projects[0].tags || [];
+      projects[0].tags.push({
+        name: tagName,
+        count: 0,
+        color: metadata.color,
+        metadata: metadata
+      });
+      properties.setProperty('projects', JSON.stringify(projects));
+    }
+
+    // Ensure tag is present in globalTags for quick access (if not already)
+    var globalTagsData = properties.getProperty('globalTags');
+    var globalTags = globalTagsData ? JSON.parse(globalTagsData) : getDefaultGlobalTags();
+    var inGlobal = (globalTags || []).some(function(t) { return t.name === tagName; });
+    if (!inGlobal) {
+      globalTags.push({ name: tagName, count: 0, color: metadata.color });
+      properties.setProperty('globalTags', JSON.stringify(globalTags));
+    }
+
+    // mark tags as updated
+    try { properties.setProperty('tags_last_updated', new Date().toISOString()); } catch(e) { Logger.log('Error setting tags_last_updated: ' + e.toString()); }
+
+    return { success: true, created: !exists, metadata: metadata };
+  } catch (e) {
+    Logger.log("Error creating unique tag: " + e.toString());
+    return { success: false, error: e.toString() };
+  }
+}
