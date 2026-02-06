@@ -841,10 +841,10 @@ function showHashtagAutocomplete() {
         </div>
       </div>
       <script>
-        var suggestions = ${JSON.stringify(suggestions.suggestions)};
+        var suggestionsList = ${JSON.stringify(suggestions.suggestions)};
         var partial = '${partialTag}';
         
-        var html = suggestions.map(tag => `
+        var html = suggestionsList.map(tag => `
           <div onclick="google.script.run.insertHashtag('${tag.name}'); google.script.host.close();" 
                style="padding: 8px; margin: 4px 0; background: #f8f9fa; border-radius: 4px; cursor: pointer; border-left: 3px solid ${tag.color};">
             <span style="font-weight: 500;">#${tag.name}</span>
