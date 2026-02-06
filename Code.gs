@@ -854,8 +854,7 @@ function showHashtagAutocomplete() {
         
         document.getElementById('suggestions').innerHTML = html;
       </script>
-    `
-    );
+    `);
     
     DocumentApp.getUi().showModelessDialog(html, 'Insert Hashtag');
   } catch (e) {
