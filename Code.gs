@@ -858,3 +858,40 @@ function defineAndCreateNewTag(tagName){
     return { success: false, error: e.toString() };
   }
 }
+
+function testDefineAndCreateNewTag() {
+  var tag = 'CustomTest' + Date.now();
+  var res = defineAndCreateNewTag(tag);
+  Logger.log('create result: %s', JSON.stringify(res));
+  Logger.log('projects: %s', PropertiesService.getDocumentProperties().getProperty('projects'));
+  Logger.log('globalTags: %s', PropertiesService.getDocumentProperties().getProperty('globalTags'));
+  Logger.log('metadata: %s', PropertiesService.getDocumentProperties().getProperty('tag_' + tag));
+  return tag;
+}
+
+function cleanupTestTag() {
+  var properties = PropertiesService.getDocumentProperties();
+  var globalTagsData = properties.getProperty('globalTags');
+  var projectsData = properties.getProperty('projects');
+  var projects = projectsData ? JSON.parse(projectsData) : getDefaultProjects();
+
+  // Remove from project
+  projects.forEach(function(project) {
+    if (project.tags) {
+      project.tags = project.tags.filter(function(tag) {
+        return tag.name !== 'CustomTest1770327748351';
+      }
+    );
+    properties.setProperty('projects', JSON.stringify(projects));
+    }
+  });
+
+  // Remove from global tags
+  if (globalTagsData) {
+    var globalTags = JSON.parse(globalTagsData);
+    globalTags = globalTags.filter(function(tag) {
+      return tag.name !== 'SmokeTest.Tag1770322272274';
+    });
+    properties.setProperty('globalTags', JSON.stringify(globalTags));
+  }
+}
