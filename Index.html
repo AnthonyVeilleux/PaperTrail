@@ -519,115 +519,85 @@
       content.innerHTML = html;
     }
 
+    function buildTagTree(tags) {
+      const tree = {};
+      
+      tags.forEach(tag => {
+        const parts = tag.name.split('.');
+        let current = tree;
+        
+        for (let i = 0; i < parts.length; i++) {
+          const part = parts[i];
+          const isLast = i === parts.length - 1;
+          
+          if (!current[part]) {
+            current[part] = { children: {}, tag: null };
+          }
+          
+          if (isLast) {
+            current[part].tag = tag;
+          }
+          
+          current = current[part].children;
+        }
+      });
+      
+      return tree;
+    }
+
+    function renderTagNode(node, key, depth, projectId) {
+      if (!node || !node.tag) return '';
+      
+      const tag = node.tag;
+      const fullKey = tag.name;
+      const displayName = key; // Show only the current level name
+      const hasChildren = Object.keys(node.children).length > 0;
+      const isExpanded = expandedTags && expandedTags[fullKey];
+      
+      const indentLevel = depth * 24;
+      const indentStyle = `margin-left: ${indentLevel}px;`;
+      
+      let html = `
+        <div class="tag-item ${hasChildren ? 'parent-tag' : ''}" style="${indentStyle}">
+          <div class="tag-main">
+            ${hasChildren ? `<span class="tag-expand-icon" onclick="toggleNestedTag('${fullKey}', event)">${isExpanded ? '▼' : '▶'}</span>` : '<span style="width:16px;"></span>'}
+            ${depth > 0 ? '<span style="margin-left:8px;">└─</span>' : ''}
+            <div class="tag-dot" style="background-color:${tag.color}"></div>
+            <span class="tag-name">#${displayName}</span>
+            <span class="tag-count-badge">${tag.count}</span>
+          </div>
+          <div class="tag-actions">
+            <button class="tag-action-btn" onclick="openEditModal('${fullKey}', '${projectId}', event)" title="Edit">✏️</button>
+            <button class="tag-action-btn delete" onclick="openDeleteModal('${fullKey}', '${projectId}', event)" title="Delete">🗑️</button>
+          </div>
+        </div>
+      `;
+      
+      // Render children if expanded
+      if (isExpanded && hasChildren) {
+        html += '<div class="nested-children">';
+        Object.keys(node.children).forEach(childKey => {
+          html += renderTagNode(node.children[childKey], childKey, depth + 1, projectId);
+        });
+        html += '</div>';
+      }
+      
+      return html;
+    }
+
     function renderProjectTags(project) {
       if (!project.tags || project.tags.length === 0) {
         return '<div class="tags-list"><p style="padding:20px;color:#80868b;font-size:12px;">No tags yet</p></div>';
       }
 
-      // Separate parent tags (no dots) from nested tags (with dots)
-      let parentTags = [];
-      let nestedTags = {};
+      // Build tree structure from flat tag list
+      const tagTree = buildTagTree(project.tags);
       
-      project.tags.forEach(tag => {
-        if (tag.name.indexOf('.') === -1) {
-          // Simple tag without nesting
-          parentTags.push(tag);
-        } else {
-          // Nested tag - extract parent
-          let parts = tag.name.split('.');
-          let parent = parts[0];
-          if (!nestedTags[parent]) {
-            nestedTags[parent] = [];
-          }
-          nestedTags[parent].push(tag);
-        }
-      });
-
       let html = '<div class="tags-list">';
       
-      // Render parent tags first
-      parentTags.forEach(tag => {
-        const hasChildren = nestedTags[tag.name] && nestedTags[tag.name].length > 0;
-        const isExpanded = expandedTags && expandedTags[tag.name];
-        
-        html += `
-          <div class="tag-item ${hasChildren ? 'parent-tag' : ''}">
-            <div class="tag-main">
-              ${hasChildren ? `<span class="tag-expand-icon" onclick="toggleNestedTag('${tag.name}', event)">${isExpanded ? '▼' : '▶'}</span>` : '<span style="width:16px;"></span>'}
-              <div class="tag-dot" style="background-color:${tag.color}"></div>
-              <span class="tag-name">#${tag.name}</span>
-              <span class="tag-count-badge">${tag.count}</span>
-            </div>
-            <div class="tag-actions">
-              <button class="tag-action-btn" onclick="openEditModal('${tag.name}', '${project.id}', event)" title="Edit">✏️</button>
-              <button class="tag-action-btn delete" onclick="openDeleteModal('${tag.name}', '${project.id}', event)" title="Delete">🗑️</button>
-            </div>
-          </div>
-        `;
-        
-        // Render children if expanded
-        if (isExpanded && nestedTags[tag.name]) {
-          html += '<div class="nested-children">';
-          nestedTags[tag.name].forEach(childTag => {
-            const displayName = childTag.name.split('.').pop(); // Show only the last part (e.g., "tagline" instead of "newtag.tagline")
-            html += `
-              <div class="child-tag-item">
-                <div class="tag-main">
-                  <span style="width:16px;"></span>
-                  <span style="margin-left:8px;">└─</span>
-                  <div class="tag-dot" style="background-color:${childTag.color}"></div>
-                  <span class="tag-name">#${displayName}</span>
-                  <span class="tag-count-badge">${childTag.count}</span>
-                </div>
-                <div class="tag-actions">
-                  <button class="tag-action-btn" onclick="openEditModal('${childTag.name}', '${project.id}', event)" title="Edit">✏️</button>
-                  <button class="tag-action-btn delete" onclick="openDeleteModal('${childTag.name}', '${project.id}', event)" title="Delete">🗑️</button>
-                </div>
-              </div>
-            `;
-          });
-          html += '</div>';
-        }
-      });
-      
-      // Render orphaned nested tags (in case parent doesn't exist as standalone)
-      Object.keys(nestedTags).forEach(parent => {
-        if (!parentTags.find(t => t.name === parent)) {
-          const isExpanded = expandedTags && expandedTags[parent];
-          html += `
-            <div class="tag-item parent-tag">
-              <div class="tag-main">
-                <span class="tag-expand-icon" onclick="toggleNestedTag('${parent}', event)">${isExpanded ? '▼' : '▶'}</span>
-                <div class="tag-dot" style="background-color:#80868b"></div>
-                <span class="tag-name">#${parent}</span>
-                <span class="tag-count-badge">0</span>
-              </div>
-            </div>
-          `;
-          
-          if (isExpanded) {
-            html += '<div class="nested-children">';
-            nestedTags[parent].forEach(childTag => {
-              const displayName = childTag.name.split('.').pop(); // Show only the last part
-              html += `
-                <div class="child-tag-item">
-                  <div class="tag-main">
-                    <span style="width:16px;"></span>
-                    <span style="margin-left:8px;">└─</span>
-                    <div class="tag-dot" style="background-color:${childTag.color}"></div>
-                    <span class="tag-name">#${displayName}</span>
-                    <span class="tag-count-badge">${childTag.count}</span>
-                  </div>
-                  <div class="tag-actions">
-                    <button class="tag-action-btn" onclick="openEditModal('${childTag.name}', '${project.id}', event)" title="Edit">✏️</button>
-                    <button class="tag-action-btn delete" onclick="openDeleteModal('${childTag.name}', '${project.id}', event)" title="Delete">🗑️</button>
-                  </div>
-                </div>
-              `;
-            });
-            html += '</div>';
-          }
-        }
+      // Render all root-level tags
+      Object.keys(tagTree).forEach(key => {
+        html += renderTagNode(tagTree[key], key, 0, project.id);
       });
       
       html += '</div>';
