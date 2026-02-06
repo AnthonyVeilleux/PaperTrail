@@ -845,7 +845,7 @@ function showHashtagAutocomplete() {
         var partial = '${partialTag}';
         
         var html = suggestionsList.map(tag => `
-          <div onclick="google.script.run.insertHashtag('${tag.name}'); google.script.host.close();" 
+          <div onclick="google.script.run.insertHashtag(\\'${tag.name}\\'); google.script.host.close();" 
                style="padding: 8px; margin: 4px 0; background: #f8f9fa; border-radius: 4px; cursor: pointer; border-left: 3px solid ${tag.color};">
             <span style="font-weight: 500;">#${tag.name}</span>
             <span style="font-size: 11px; color: #5f6368; margin-left: 8px;">[${tag.count}]</span>
