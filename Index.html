@@ -525,13 +525,15 @@
       tags.forEach(tag => {
         const parts = tag.name.split('.');
         let current = tree;
+        let pathSoFar = '';
         
         for (let i = 0; i < parts.length; i++) {
           const part = parts[i];
+          pathSoFar = pathSoFar ? pathSoFar + '.' + part : part;
           const isLast = i === parts.length - 1;
           
           if (!current[part]) {
-            current[part] = { children: {}, tag: null };
+            current[part] = { children: {}, tag: null, fullPath: pathSoFar };
           }
           
           if (isLast) {
@@ -546,13 +548,18 @@
     }
 
     function renderTagNode(node, key, depth, projectId) {
-      if (!node || !node.tag) return '';
+      if (!node) return '';
       
       const tag = node.tag;
-      const fullKey = tag.name;
+      const fullPath = node.fullPath || key;
       const displayName = key; // Show only the current level name
       const hasChildren = Object.keys(node.children).length > 0;
-      const isExpanded = expandedTags && expandedTags[fullKey];
+      const isExpanded = expandedTags && expandedTags[fullPath];
+      
+      // If this is an intermediate node without a tag, still render it as a folder
+      const isIntermediateNode = !tag && hasChildren;
+      const tagColor = tag ? tag.color : '#80868b';
+      const tagCount = tag ? tag.count : 0;
       
       const indentLevel = depth * 24;
       const indentStyle = `margin-left: ${indentLevel}px;`;
@@ -560,26 +567,30 @@
       let html = `
         <div class="tag-item ${hasChildren ? 'parent-tag' : ''}" style="${indentStyle}">
           <div class="tag-main">
-            ${hasChildren ? `<span class="tag-expand-icon" onclick="toggleNestedTag('${fullKey}', event)">${isExpanded ? '▼' : '▶'}</span>` : '<span style="width:16px;"></span>'}
+            ${hasChildren ? `<span class="tag-expand-icon" onclick="toggleNestedTag('${fullPath}', event)">${isExpanded ? '▼' : '▶'}</span>` : '<span style="width:16px;"></span>'}
             ${depth > 0 ? '<span style="margin-left:8px;">└─</span>' : ''}
-            <div class="tag-dot" style="background-color:${tag.color}"></div>
+            <div class="tag-dot" style="background-color:${tagColor}"></div>
             <span class="tag-name">#${displayName}</span>
-            <span class="tag-count-badge">${tag.count}</span>
+            <span class="tag-count-badge">${tagCount}</span>
           </div>
-          <div class="tag-actions">
-            <button class="tag-action-btn" onclick="openEditModal('${fullKey}', '${projectId}', event)" title="Edit">✏️</button>
-            <button class="tag-action-btn delete" onclick="openDeleteModal('${fullKey}', '${projectId}', event)" title="Delete">🗑️</button>
-          </div>
+          ${tag ? `<div class="tag-actions">
+            <button class="tag-action-btn" onclick="openEditModal('${fullPath}', '${projectId}', event)" title="Edit">✏️</button>
+            <button class="tag-action-btn delete" onclick="openDeleteModal('${fullPath}', '${projectId}', event)" title="Delete">🗑️</button>
+          </div>` : ''}
         </div>
       `;
       
       // Render children if expanded
-      if (isExpanded && hasChildren) {
-        html += '<div class="nested-children">';
+      if ((isExpanded || isIntermediateNode) && hasChildren) {
+        if (!isIntermediateNode) {
+          html += '<div class="nested-children">';
+        }
         Object.keys(node.children).forEach(childKey => {
           html += renderTagNode(node.children[childKey], childKey, depth + 1, projectId);
         });
-        html += '</div>';
+        if (!isIntermediateNode) {
+          html += '</div>';
+        }
       }
       
       return html;
