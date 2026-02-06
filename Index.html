@@ -73,12 +73,53 @@
     .btn-danger:hover { background: #fce8e6; }
     
     .tag-count { background: #f1f3f4; padding: 2px 8px; border-radius: 12px; font-size: 11px; color: #5f6368; }
+    
+    .search-container { position: relative; }
+    .autocomplete-list { 
+      position: absolute; 
+      top: 100%; 
+      left: 0; 
+      right: 0; 
+      background: #fff; 
+      border: 1px solid #e8eaed; 
+      border-top: none; 
+      border-radius: 0 0 8px 8px; 
+      max-height: 280px; 
+      overflow-y: auto; 
+      display: none; 
+      z-index: 100; 
+      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+    
+    .autocomplete-list.show { display: block; }
+    
+    .autocomplete-item { 
+      padding: 10px 12px; 
+      cursor: pointer; 
+      border-bottom: 1px solid #f1f3f4; 
+      display: flex; 
+      align-items: center; 
+      gap: 8px; 
+      transition: background 0.15s ease;
+    }
+    
+    .autocomplete-item:last-child { border-bottom: none; }
+    .autocomplete-item:hover { background: #f8f9fa; }
+    .autocomplete-item.selected { background: #e8f0fe; }
+    
+    .autocomplete-icon { font-size: 12px; color: #5f6368; }
+    .autocomplete-text { flex: 1; font-size: 13px; }
+    .autocomplete-match { font-weight: 600; color: #1a73e8; }
+    .autocomplete-count { font-size: 11px; color: #5f6368; background: #f1f3f4; padding: 2px 6px; border-radius: 4px; }
   </style>
 </head>
 <body>
   <div class="header">
     <div class="header-title">🏷️ Paper Trail</div>
-    <input type="text" class="search-input" id="searchInput" placeholder="Search tags...">
+    <div class="search-container">
+      <input type="text" class="search-input" id="searchInput" placeholder="Search tags...">
+      <div class="autocomplete-list" id="autocompleteList"></div>
+    </div>
     <div class="filter-tabs">
       <button class="filter-tab" data-filter="all" onclick="setFilter('all')">All</button>
       <button class="filter-tab active" data-filter="projects" onclick="setFilter('projects')">Projects</button>
@@ -168,7 +209,245 @@
     window.onload = function() {
       console.log('Loading tags...');
       loadTags();
+      setupKeyboardShortcuts();
     };
+
+    // Setup keyboard shortcuts
+    function setupKeyboardShortcuts() {
+      console.log('Setting up keyboard shortcuts...');
+      
+      // Handle Shift+K to toggle sidebar
+      function handleKeyDown(e) {
+        console.log('Key event captured:', {key: e.key, code: e.code, shift: e.shiftKey, ctrl: e.ctrlKey});
+        
+        // Check for Shift+K
+        if (e.shiftKey && (e.code === 'KeyK' || e.key === 'K' || e.key === 'k')) {
+          e.preventDefault();
+          e.stopPropagation();
+          console.log('✓ Shift+K detected - Closing sidebar');
+          
+          // Show visual feedback
+          const header = document.querySelector('.header');
+          if (header) {
+            header.style.backgroundColor = '#e8f0fe';
+            header.style.transition = 'background-color 0.3s ease';
+          }
+          
+          // Call the Google Apps Script function to close the sidebar
+          setTimeout(function() {
+            google.script.run
+              .withSuccessHandler(function() {
+                console.log('Sidebar closed successfully');
+              })
+              .withFailureHandler(function(error) {
+                console.error('Error closing sidebar:', error);
+              })
+              .hideSidebar();
+          }, 100);
+        }
+      }
+      
+      // Attach listeners with capture phase for better event catching
+      document.addEventListener('keydown', handleKeyDown, true);
+      window.addEventListener('keydown', handleKeyDown, true);
+      document.body && document.body.addEventListener('keydown', handleKeyDown, true);
+      
+      // Also add keyup as backup
+      document.addEventListener('keyup', function(e) {
+        if (e.shiftKey && (e.code === 'KeyK' || e.key === 'K' || e.key === 'k')) {
+          console.log('Shift+K key up event');
+        }
+      }, true);
+      
+      console.log('✓ Keyboard shortcuts setup complete');
+    }
+
+    // ===== AUTOCOMPLETE FEATURE =====
+    let autocompleteData = [];
+    let currentAutocompleteIndex = -1;
+    
+    function initializeAutocomplete() {
+      const searchInput = document.getElementById('searchInput');
+      const autocompleteList = document.getElementById('autocompleteList');
+      
+      // Input event for showing suggestions
+      searchInput.addEventListener('input', function(e) {
+        const query = e.target.value.trim().toLowerCase();
+        
+        if (query.length === 0) {
+          autocompleteList.classList.remove('show');
+          currentAutocompleteIndex = -1;
+          return;
+        }
+        
+        // Get all available tags from allTags
+        const allTagsList = getAllTagsFromData();
+        
+        // Filter tags based on query
+        const matches = allTagsList.filter(tag => 
+          tag.name.toLowerCase().includes(query)
+        ).slice(0, 10); // Limit to 10 results
+        
+        if (matches.length === 0) {
+          autocompleteList.classList.remove('show');
+          return;
+        }
+        
+        autocompleteData = matches;
+        currentAutocompleteIndex = -1;
+        renderAutocompleteList(matches, query);
+        autocompleteList.classList.add('show');
+      });
+      
+      // Keyboard navigation
+      searchInput.addEventListener('keydown', function(e) {
+        const autocompleteList = document.getElementById('autocompleteList');
+        if (!autocompleteList.classList.contains('show')) return;
+        
+        switch(e.key) {
+          case 'ArrowDown':
+            e.preventDefault();
+            currentAutocompleteIndex = Math.min(currentAutocompleteIndex + 1, autocompleteData.length - 1);
+            updateAutocompleteSelection();
+            break;
+          case 'ArrowUp':
+            e.preventDefault();
+            currentAutocompleteIndex = Math.max(currentAutocompleteIndex - 1, -1);
+            updateAutocompleteSelection();
+            break;
+          case 'Enter':
+            e.preventDefault();
+            if (currentAutocompleteIndex >= 0 && autocompleteData[currentAutocompleteIndex]) {
+              selectAutocompleteItem(autocompleteData[currentAutocompleteIndex]);
+            }
+            break;
+          case 'Escape':
+            autocompleteList.classList.remove('show');
+            currentAutocompleteIndex = -1;
+            break;
+        }
+      });
+      
+      // Close autocomplete when clicking outside
+      document.addEventListener('click', function(e) {
+        if (e.target !== searchInput) {
+          autocompleteList.classList.remove('show');
+        }
+      });
+    }
+    
+    function getAllTagsFromData() {
+      const tags = [];
+      if (!allTags) return tags;
+      
+      // Get tags from projects
+      if (allTags.projects) {
+        allTags.projects.forEach(project => {
+          if (project.tags) {
+            project.tags.forEach(tag => {
+              if (!tags.find(t => t.name === tag.name)) {
+                tags.push({
+                  name: tag.name,
+                  count: tag.count,
+                  color: tag.color,
+                  type: 'project'
+                });
+              }
+            });
+          }
+        });
+      }
+      
+      // Get global tags
+      if (allTags.globalTags) {
+        allTags.globalTags.forEach(tag => {
+          if (!tags.find(t => t.name === tag.name)) {
+            tags.push({
+              name: tag.name,
+              count: tag.count,
+              color: tag.color,
+              type: 'global'
+            });
+          }
+        });
+      }
+      
+      return tags.sort((a, b) => b.count - a.count); // Sort by count
+    }
+    
+    function renderAutocompleteList(matches, query) {
+      const autocompleteList = document.getElementById('autocompleteList');
+      const html = matches.map((tag, index) => {
+        const highlightedName = highlightQuery(tag.name, query);
+        return `
+          <div class="autocomplete-item" data-index="${index}" onclick="selectAutocompleteItem({name: '${tag.name}', count: ${tag.count}, color: '${tag.color}', type: '${tag.type}'})">
+            <div class="autocomplete-icon">#</div>
+            <div class="autocomplete-text">${highlightedName}</div>
+            <div class="autocomplete-count">${tag.count}</div>
+          </div>
+        `;
+      }).join('');
+      
+      autocompleteList.innerHTML = html;
+    }
+    
+    function highlightQuery(text, query) {
+      const regex = new RegExp(`(${query})`, 'gi');
+      return text.replace(regex, '<span class="autocomplete-match">$1</span>');
+    }
+    
+    function updateAutocompleteSelection() {
+      const items = document.querySelectorAll('.autocomplete-item');
+      items.forEach((item, index) => {
+        if (index === currentAutocompleteIndex) {
+          item.classList.add('selected');
+          item.scrollIntoView({ block: 'nearest' });
+        } else {
+          item.classList.remove('selected');
+        }
+      });
+    }
+    
+    function selectAutocompleteItem(tag) {
+      const searchInput = document.getElementById('searchInput');
+      const autocompleteList = document.getElementById('autocompleteList');
+      
+      searchInput.value = '#' + tag.name;
+      autocompleteList.classList.remove('show');
+      currentAutocompleteIndex = -1;
+      
+      // Perform search/filter
+      performSearch(tag.name);
+    }
+    
+    function performSearch(tagName) {
+      if (!allTags) return;
+      
+      const searchInput = document.getElementById('searchInput');
+      const query = searchInput.value.replace('#', '').toLowerCase();
+      
+      // Filter projects and tags
+      const filteredProjects = allTags.projects.map(project => ({
+        ...project,
+        tags: project.tags ? project.tags.filter(tag => 
+          tag.name.toLowerCase().includes(query)
+        ) : []
+      })).filter(project => project.tags.length > 0);
+      
+      if (filteredProjects.length === 0) {
+        const content = document.getElementById('content');
+        content.innerHTML = `
+          <div class="empty-state">
+            <div style="font-size:48px;margin-bottom:12px;">🔍</div>
+            <div class="empty-title">No Tags Found</div>
+            <p style="font-size:12px;color:#80868b;margin-top:8px;">No tags matching "<strong>#${query}</strong>"</p>
+          </div>
+        `;
+      } else {
+        renderProjectsView(filteredProjects);
+      }
+    }
+    // ===== END AUTOCOMPLETE FEATURE =====
 
     function loadTags() {
       console.log('Calling getAllTags...');
@@ -188,6 +467,9 @@
       console.log('Rendering tags:', data);
       allTags = data;
       const content = document.getElementById('content');
+      
+      // Initialize autocomplete with loaded data
+      initializeAutocomplete();
       
       if (currentFilter === 'projects') {
         renderProjectsView(data.projects);
