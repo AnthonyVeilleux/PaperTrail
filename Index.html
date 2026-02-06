@@ -569,13 +569,14 @@
         if (isExpanded && nestedTags[tag.name]) {
           html += '<div class="nested-children">';
           nestedTags[tag.name].forEach(childTag => {
+            const displayName = childTag.name.split('.').pop(); // Show only the last part (e.g., "tagline" instead of "newtag.tagline")
             html += `
               <div class="child-tag-item">
                 <div class="tag-main">
                   <span style="width:16px;"></span>
                   <span style="margin-left:8px;">└─</span>
                   <div class="tag-dot" style="background-color:${childTag.color}"></div>
-                  <span class="tag-name">#${childTag.name}</span>
+                  <span class="tag-name">#${displayName}</span>
                   <span class="tag-count-badge">${childTag.count}</span>
                 </div>
                 <div class="tag-actions">
@@ -607,13 +608,14 @@
           if (isExpanded) {
             html += '<div class="nested-children">';
             nestedTags[parent].forEach(childTag => {
+              const displayName = childTag.name.split('.').pop(); // Show only the last part
               html += `
                 <div class="child-tag-item">
                   <div class="tag-main">
                     <span style="width:16px;"></span>
                     <span style="margin-left:8px;">└─</span>
                     <div class="tag-dot" style="background-color:${childTag.color}"></div>
-                    <span class="tag-name">#${childTag.name}</span>
+                    <span class="tag-name">#${displayName}</span>
                     <span class="tag-count-badge">${childTag.count}</span>
                   </div>
                   <div class="tag-actions">
