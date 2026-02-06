@@ -26,14 +26,20 @@
     .tags-list { margin-left: 24px; padding-left: 8px; border-left: 2px solid #f1f3f4; margin-top: 4px; }
     .tag-item { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; border-radius: 6px; cursor: pointer; margin-bottom: 2px; }
     .tag-item:hover { background: #f8f9fa; }
+    .tag-item.parent-tag { font-weight: 600; }
     
+    .tag-expand-icon { width: 16px; text-align: center; cursor: pointer; font-size: 11px; user-select: none; }
     .tag-main { display: flex; align-items: center; gap: 8px; flex: 1; }
     .tag-dot { width: 8px; height: 8px; border-radius: 50%; }
     .tag-name { font-size: 13px; font-weight: 500; flex: 1; }
     .tag-count-badge { font-size: 11px; color: #5f6368; }
     
+    .nested-children { margin-left: 24px; padding-left: 8px; border-left: 2px solid #e8eaed; }
+    .child-tag-item { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; border-radius: 6px; margin-bottom: 2px; background: #f8f9fa; }
+    .child-tag-item:hover { background: #eef2fd; }
+    
     .tag-actions { display: none; gap: 2px; }
-    .tag-item:hover .tag-actions { display: flex; }
+    .tag-item:hover .tag-actions, .child-tag-item:hover .tag-actions { display: flex; }
     .tag-action-btn { padding: 4px; background: transparent; border: none; cursor: pointer; border-radius: 4px; }
     .tag-action-btn:hover { background: #e8eaed; }
     .tag-action-btn.delete:hover { background: #fce8e6; }
@@ -136,7 +142,7 @@
   </div>
 
   <div class="footer">
-    <div class="footer-hint">💡 Type <strong>#tagname</strong> in your document</div>
+    <div class="footer-hint">💡 Type <strong>#tagname</strong> or nested <strong>#parent.child</strong> in your document</div>
   </div>
 
   <!-- Edit Modal -->
@@ -195,6 +201,7 @@
     let allTags = null;
     let currentTag = null;
     let expandedProjects = [];
+    let expandedTags = {};
 
     const colors = [
       { value: '#1A73E8', name: 'Blue' },
@@ -517,11 +524,36 @@
         return '<div class="tags-list"><p style="padding:20px;color:#80868b;font-size:12px;">No tags yet</p></div>';
       }
 
-      let html = '<div class="tags-list">';
+      // Separate parent tags (no dots) from nested tags (with dots)
+      let parentTags = [];
+      let nestedTags = {};
+      
       project.tags.forEach(tag => {
+        if (tag.name.indexOf('.') === -1) {
+          // Simple tag without nesting
+          parentTags.push(tag);
+        } else {
+          // Nested tag - extract parent
+          let parts = tag.name.split('.');
+          let parent = parts[0];
+          if (!nestedTags[parent]) {
+            nestedTags[parent] = [];
+          }
+          nestedTags[parent].push(tag);
+        }
+      });
+
+      let html = '<div class="tags-list">';
+      
+      // Render parent tags first
+      parentTags.forEach(tag => {
+        const hasChildren = nestedTags[tag.name] && nestedTags[tag.name].length > 0;
+        const isExpanded = expandedTags && expandedTags[tag.name];
+        
         html += `
-          <div class="tag-item">
+          <div class="tag-item ${hasChildren ? 'parent-tag' : ''}">
             <div class="tag-main">
+              ${hasChildren ? `<span class="tag-expand-icon" onclick="toggleNestedTag('${tag.name}', event)">${isExpanded ? '▼' : '▶'}</span>` : '<span style="width:16px;"></span>'}
               <div class="tag-dot" style="background-color:${tag.color}"></div>
               <span class="tag-name">#${tag.name}</span>
               <span class="tag-count-badge">${tag.count}</span>
@@ -532,9 +564,79 @@
             </div>
           </div>
         `;
+        
+        // Render children if expanded
+        if (isExpanded && nestedTags[tag.name]) {
+          html += '<div class="nested-children">';
+          nestedTags[tag.name].forEach(childTag => {
+            html += `
+              <div class="child-tag-item">
+                <div class="tag-main">
+                  <span style="width:16px;"></span>
+                  <span style="margin-left:8px;">└─</span>
+                  <div class="tag-dot" style="background-color:${childTag.color}"></div>
+                  <span class="tag-name">#${childTag.name}</span>
+                  <span class="tag-count-badge">${childTag.count}</span>
+                </div>
+                <div class="tag-actions">
+                  <button class="tag-action-btn" onclick="openEditModal('${childTag.name}', '${project.id}', event)" title="Edit">✏️</button>
+                  <button class="tag-action-btn delete" onclick="openDeleteModal('${childTag.name}', '${project.id}', event)" title="Delete">🗑️</button>
+                </div>
+              </div>
+            `;
+          });
+          html += '</div>';
+        }
       });
+      
+      // Render orphaned nested tags (in case parent doesn't exist as standalone)
+      Object.keys(nestedTags).forEach(parent => {
+        if (!parentTags.find(t => t.name === parent)) {
+          const isExpanded = expandedTags && expandedTags[parent];
+          html += `
+            <div class="tag-item parent-tag">
+              <div class="tag-main">
+                <span class="tag-expand-icon" onclick="toggleNestedTag('${parent}', event)">${isExpanded ? '▼' : '▶'}</span>
+                <div class="tag-dot" style="background-color:#80868b"></div>
+                <span class="tag-name">#${parent}</span>
+                <span class="tag-count-badge">0</span>
+              </div>
+            </div>
+          `;
+          
+          if (isExpanded) {
+            html += '<div class="nested-children">';
+            nestedTags[parent].forEach(childTag => {
+              html += `
+                <div class="child-tag-item">
+                  <div class="tag-main">
+                    <span style="width:16px;"></span>
+                    <span style="margin-left:8px;">└─</span>
+                    <div class="tag-dot" style="background-color:${childTag.color}"></div>
+                    <span class="tag-name">#${childTag.name}</span>
+                    <span class="tag-count-badge">${childTag.count}</span>
+                  </div>
+                  <div class="tag-actions">
+                    <button class="tag-action-btn" onclick="openEditModal('${childTag.name}', '${project.id}', event)" title="Edit">✏️</button>
+                    <button class="tag-action-btn delete" onclick="openDeleteModal('${childTag.name}', '${project.id}', event)" title="Delete">🗑️</button>
+                  </div>
+                </div>
+              `;
+            });
+            html += '</div>';
+          }
+        }
+      });
+      
       html += '</div>';
       return html;
+    }
+    
+    function toggleNestedTag(parentName, event) {
+      if (event) event.stopPropagation();
+      if (!expandedTags) expandedTags = {};
+      expandedTags[parentName] = !expandedTags[parentName];
+      renderTags(allTags);
     }
 
     function toggleProject(projectName) {
