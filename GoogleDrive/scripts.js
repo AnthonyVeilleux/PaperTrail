@@ -111,7 +111,7 @@ window.onload = function (){
         let response;
         try {
           response = await gapi.client.driveactivity.activity.query({
-            'pageSize': 10,
+            'pageSize': 1000,
           });
         } catch (err) {
           document.getElementById('content').innerText = err.message;
@@ -244,7 +244,7 @@ window.onload = function (){
     return new Promise((resolve, reject) => {
         tokenClient = google.accounts.oauth2.initTokenClient({
         client_id: CLIENT_ID,
-        scope: "https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/drive.readonly",
+        scope: "https://www.googleapis.com/auth/drive",
         callback: (tokenResponse) => {
             if (tokenResponse.error) {
             console.error("Error signing in", tokenResponse);
@@ -273,46 +273,72 @@ window.onload = function (){
     );
     }
     // Make sure the client is loaded and sign-in is complete before calling this method.
-    function execute() {
-    return gapi.client.drive.files.list({
+  async function execute() {
+    try {
+      const response = await gapi.client.drive.files.list({
         pageSize: 1000,
-        fields: "files(id, name)",
-    }).then(
-        function (response) {
-            const files = response.result.files;
-            const list = document.getElementById('content');
-            list.innerHTML = "";
-            files.forEach(function (file){
-                const li = document.createElement("li");
-                li.textContent = `Name:${file.name} ID:${file.id}`;
-                console.log(li);
-                list.appendChild(li);
-            });
-        },
-            function (err) {
-            console.error("Execute error", err);
+        fields: "files(id, name, appProperties)"
+      });
+
+      const files = response.result.files || [];
+      const list = document.getElementById("content");
+      list.innerHTML = "";
+
+      files.forEach(file => {
+        const li = document.createElement("li");
+
+        let tagsText = "No tags";
+
+        if (file.appProperties) {
+          tagsText = Object.entries(file.appProperties)
+            .map(([key, value]) => `${key}: ${value}`)
+            .join(", ");
         }
-    );
+
+        li.textContent =
+          `Name: ${file.name} | File ID: ${file.id} | PaperTrail: ${tagsText}`;
+
+        list.appendChild(li);
+      });
+
+    } catch (err) {
+      console.error("Execute error", err);
     }
-    var authorize = document.getElementById('authorize_button');
-    if (authorize != null){
-        authorize.onclick = function (){
-            handleAuthClick();
-        };
-    }
-    var signout = document.getElementById('signout_button');
-    if (signout != null){
-        signout.onclick = function (){
-            handleSignoutClick();
-        };
-    }
-    var content = document.getElementById('context');
-    if (content != null){
-        content.onclick = function (){
-            authenticate().then(loadClient).then(execute);
-        };
-    }   
-    gapi.load("client", function () {
-    console.log("GAPI client loaded");
+  }
+
+  async function setTags(fileId, tags) {
+    const res = await gapi.client.drive.files.update({
+      fileId,
+      supportsAllDrives: true,
+      resource: {
+        appProperties: tags
+      }
     });
+    console.log("Tags written:", res);
+  }
+
+  var authorize = document.getElementById('authorize_button');
+  if (authorize != null){
+    authorize.onclick = function (){
+       handleAuthClick();
+    };
+  }
+
+  var signout = document.getElementById('signout_button');
+  if (signout != null){
+    signout.onclick = function (){
+       handleSignoutClick();
+    };
+  }
+
+  var content = document.getElementById('context');
+  if (content != null){
+    content.onclick = function (){
+    loadClient().then(authenticate).then(setTags("", {number: "1", tag: "#Notes"})).then(execute);
+    };
+  }
+
+  gapi.load("client", function () {
+  console.log("GAPI client loaded");
+  });
 }
