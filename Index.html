@@ -18,31 +18,55 @@
     
     .content { padding: 12px; max-height: calc(100vh - 250px); overflow-y: auto; }
     
-    .project { margin-bottom: 8px; }
-    .project-header { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 8px; cursor: pointer; }
-    .project-header:hover { background: #f8f9fa; }
-    .project-name { font-size: 13px; font-weight: 600; flex: 1; }
+    .project { margin-bottom: 12px; }
+    .project-header { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; cursor: pointer; transition: all 0.15s ease; }
+    .project-header:hover { background: #f1f3f4; transform: translateX(2px); }
+    .project-name { font-size: 13px; font-weight: 600; flex: 1; color: #202124; }
     
-    .tags-list { margin-left: 24px; padding-left: 8px; border-left: 2px solid #f1f3f4; margin-top: 4px; }
-    .tag-item { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; border-radius: 6px; cursor: pointer; margin-bottom: 2px; }
-    .tag-item:hover { background: #f8f9fa; }
+    .tags-list { margin-left: 8px; padding-left: 12px; border-left: 3px solid #d0d4d8; margin-top: 8px; }
+    .tag-item { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-radius: 8px; cursor: pointer; margin-bottom: 4px; transition: all 0.2s ease; }
+    .tag-item:hover { background: #f8f9fa; transform: translateX(2px); }
     .tag-item.parent-tag { font-weight: 600; }
     
-    .tag-expand-icon { width: 16px; text-align: center; cursor: pointer; font-size: 11px; user-select: none; }
-    .tag-main { display: flex; align-items: center; gap: 8px; flex: 1; }
-    .tag-dot { width: 8px; height: 8px; border-radius: 50%; }
-    .tag-name { font-size: 13px; font-weight: 500; flex: 1; }
-    .tag-count-badge { font-size: 11px; color: #5f6368; }
+    .tag-expand-icon { 
+      width: 20px; 
+      height: 20px; 
+      display: flex; 
+      align-items: center; 
+      justify-content: center;
+      cursor: pointer; 
+      font-size: 12px; 
+      user-select: none;
+      transition: transform 0.2s ease;
+      border-radius: 4px;
+    }
+    .tag-expand-icon:hover { background: #e8eaed; }
+    .tag-expand-icon.expanded { transform: rotate(90deg); }
     
-    .nested-children { margin-left: 24px; padding-left: 8px; border-left: 2px solid #e8eaed; }
-    .child-tag-item { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; border-radius: 6px; margin-bottom: 2px; background: #f8f9fa; }
-    .child-tag-item:hover { background: #eef2fd; }
+    .tag-main { display: flex; align-items: center; gap: 10px; flex: 1; }
+    .tag-dot { width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .tag-name { font-size: 13px; font-weight: 500; flex: 1; color: #202124; }
+    .tag-count-badge { font-size: 11px; color: #5f6368; background: #f1f3f4; padding: 2px 6px; border-radius: 4px; }
     
-    .tag-actions { display: none; gap: 2px; }
-    .tag-item:hover .tag-actions, .child-tag-item:hover .tag-actions { display: flex; }
-    .tag-action-btn { padding: 4px; background: transparent; border: none; cursor: pointer; border-radius: 4px; }
-    .tag-action-btn:hover { background: #e8eaed; }
-    .tag-action-btn.delete:hover { background: #fce8e6; }
+    .nested-children { margin-left: 20px; padding-left: 12px; border-left: 2px dashed #dadce0; margin-top: 4px; }
+    .child-tag-item { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: 6px; margin-bottom: 3px; background: transparent; transition: all 0.15s ease; }
+    .child-tag-item:hover { background: #f8f9fa; }
+    
+    /* Depth-based shading for nested items */
+    .nested-children .tag-item { background: rgba(248, 249, 250, 0.5); }
+    .nested-children .nested-children .tag-item { background: rgba(241, 243, 244, 0.6); }
+    .nested-children .nested-children .nested-children .tag-item { background: rgba(232, 234, 237, 0.4); }
+    
+    .tag-actions { display: none; gap: 4px; }
+    .tag-item:hover .tag-actions, .child-tag-item:hover .tag-actions { display: flex; animation: slideIn 0.2s ease; }
+    .tag-action-btn { padding: 6px 8px; background: transparent; border: none; cursor: pointer; border-radius: 4px; transition: all 0.15s ease; font-size: 14px; }
+    .tag-action-btn:hover { background: #dadce0; transform: scale(1.1); }
+    .tag-action-btn.delete:hover { background: #fce8e6; color: #d93025; }
+    
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(-8px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
     
     .footer { padding: 12px; border-top: 1px solid #e8eaed; }
     .footer-hint { font-size: 11px; color: #5f6368; text-align: center; padding: 8px; background: #e8f0fe; border-radius: 8px; }
@@ -559,20 +583,17 @@
       const hasChildren = Object.keys(node.children).length > 0;
       const isExpanded = expandedTags && expandedTags[fullPath];
       
-      const indentLevel = depth * 24;
-      const indentStyle = `margin-left: ${indentLevel}px;`;
-      
+      const indentLevel = 0; // Fixed indentation handled by CSS
       const tagColor = tag ? tag.color : '#80868b';
       const tagCount = tag ? tag.count : 0;
       
       let html = `
-        <div class="tag-item ${hasChildren ? 'parent-tag' : ''}" style="${indentStyle}">
+        <div class="tag-item ${hasChildren ? 'parent-tag' : ''}" data-depth="${depth}">
           <div class="tag-main">
-            ${hasChildren ? `<span class="tag-expand-icon" onclick="toggleNestedTag('${fullPath}', event)">${isExpanded ? '▼' : '▶'}</span>` : '<span style="width:16px;"></span>'}
-            ${depth > 0 ? '<span style="margin-left:8px;">└─</span>' : ''}
-            <div class="tag-dot" style="background-color:${tagColor}"></div>
+            ${hasChildren ? `<span class="tag-expand-icon ${isExpanded ? 'expanded' : ''}" onclick="toggleNestedTag('${fullPath}', event)" title="Toggle children">▶</span>` : '<span style="width:20px;"></span>'}
+            <div class="tag-dot" style="background-color:${tagColor}; flex-shrink: 0;"></div>
             <span class="tag-name">#${key}</span>
-            <span class="tag-count-badge">${tagCount}</span>
+            ${tagCount > 0 ? `<span class="tag-count-badge">${tagCount}</span>` : ''}
           </div>
           ${tag ? `<div class="tag-actions">
             <button class="tag-action-btn" onclick="openEditModal('${fullPath}', '${projectId}', event)" title="Edit">✏️</button>
@@ -584,7 +605,7 @@
       // Render children if expanded or if it's an intermediate node without expansion needed
       if ((isExpanded || !tag) && hasChildren) {
         html += '<div class="nested-children">';
-        Object.keys(node.children).forEach(childKey => {
+        Object.keys(node.children).sort().forEach(childKey => {
           html += renderTagNode(node.children[childKey], childKey, depth + 1, projectId);
         });
         html += '</div>';
