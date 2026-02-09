@@ -1,12 +1,12 @@
 /**
- * Research Tag Manager for Google Docs
+ * PaperTrail - Research Tag Manager for Google Docs
  * Code.gs - Backend Script 
  */
 
 // Install menu when document opens
 function onOpen() {
   DocumentApp.getUi()
-    .createMenu('Tag Manager')
+    .createMenu('PaperTrail')
     .addItem('Open Tag Sidebar', 'showSidebar')
     .addItem('Refresh Tags', 'refreshAllTags')
     .addItem('Enable Hashtag Autocomplete', 'enableHashtagAutocomplete')
@@ -20,14 +20,14 @@ function onOpen() {
     HtmlService.createHtmlOutput('<p style="padding:8px;font-size:12px;"><strong>💡 Tips:</strong><br>• Press <kbd style="background:#f0f0f0;padding:2px 6px;border-radius:3px;border:1px solid #ccc;">Shift+K</kbd> to toggle sidebar<br>• Use <kbd style="background:#f0f0f0;padding:2px 6px;border-radius:3px;border:1px solid #ccc;">#</kbd> + type to autocomplete hashtags</p>')
       .setWidth(350)
       .setHeight(100),
-    'Tag Manager Tips'
+    'PaperTrail Tips'
   );
 }
 
 // Show the sidebar
 function showSidebar() {
   var html = HtmlService.createHtmlOutputFromFile('Index')
-    .setTitle('Tag Manager')
+    .setTitle('PaperTrail')
     .setWidth(360)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
