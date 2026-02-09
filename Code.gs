@@ -28,7 +28,9 @@ function onOpen() {
 function showSidebar() {
   var html = HtmlService.createHtmlOutputFromFile('Index')
     .setTitle('Tag Manager')
-    .setWidth(360);
+    .setWidth(360)
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
   DocumentApp.getUi().showSidebar(html);
 }
 
@@ -851,10 +853,6 @@ function showHashtagAutocomplete() {
                  '<span style="font-size: 11px; color: #5f6368; margin-left: 8px;">[' + tag.count + ']</span>' +
                  '</div>';
         }).join('');
-        
-        document.getElementById('suggestions').innerHTML = html;
-      </script>
-    `);
         
         document.getElementById('suggestions').innerHTML = html;
       </script>
