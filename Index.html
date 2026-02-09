@@ -749,17 +749,14 @@
             current[part] = { 
               children: {}, 
               tag: null, 
-              fullPath: fullPath
+              fullPath: fullPath,
+              isIntermediate: !isLast
             };
           }
           
           if (isLast) {
             current[part].tag = tag;
-          } else {
-            // Auto-expand intermediate nodes on initial load
-            if (!expandedTags[fullPath]) {
-              expandedTags[fullPath] = true;
-            }
+            current[part].isIntermediate = false;
           }
           
           current = current[part].children;
@@ -775,16 +772,30 @@
       const tag = node.tag;
       const fullPath = node.fullPath;
       const hasChildren = Object.keys(node.children).length > 0;
+      const isIntermediate = node.isIntermediate && !tag; // Intermediate if no tag but has children
       const isExpanded = expandedTags && expandedTags[fullPath];
       
-      const indentLevel = 0; // Fixed indentation handled by CSS
+      // For intermediate nodes without a tag, they should only show if expanded
+      // For actual tags, show the expand button only if they have children
+      const shouldShowExpandButton = hasChildren && tag;
       const tagColor = tag ? tag.color : '#80868b';
       const tagCount = tag ? tag.count : 0;
+      
+      // If this is an intermediate node (no tag), don't render it as a node
+      // Just render its children directly
+      if (isIntermediate && !tag && hasChildren) {
+        let html = '<div class="nested-children">';
+        Object.keys(node.children).sort().forEach(childKey => {
+          html += renderTagNode(node.children[childKey], childKey, depth, projectId);
+        });
+        html += '</div>';
+        return html;
+      }
       
       let html = `
         <div class="tag-item ${hasChildren ? 'parent-tag' : ''}" data-depth="${depth}">
           <div class="tag-main">
-            ${hasChildren ? `<span class="tag-expand-icon ${isExpanded ? 'expanded' : ''}" onclick="toggleNestedTag('${fullPath}', event)" title="Toggle children">▶</span>` : '<span style="width:20px;"></span>'}
+            ${shouldShowExpandButton ? `<span class="tag-expand-icon ${isExpanded ? 'expanded' : ''}" onclick="toggleNestedTag('${fullPath}', event)" title="Toggle children">▶</span>` : '<span style="width:20px;"></span>'}
             <div class="tag-dot" style="background-color:${tagColor}; flex-shrink: 0;"></div>
             <span class="tag-name">#${key}</span>
             ${tagCount > 0 ? `<span class="tag-count-badge">${tagCount}</span>` : ''}

@@ -519,6 +519,13 @@ function updateProjectsWithNewTagInfo(tagName, metadata) {
 }
 
 /**
+ * Escape special regex characters
+ */
+function escapeRegex(string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
  * Rename tag throughout document
  */
 function renameTagInDocument(oldName, newName) {
@@ -526,8 +533,8 @@ function renameTagInDocument(oldName, newName) {
     var doc = DocumentApp.getActiveDocument();
     var body = doc.getBody();
     
-    // Create regex pattern for the old tag
-    var pattern = '#' + oldName + '(?![a-zA-Z0-9_-])';
+    // Create regex pattern - escape special regex characters
+    var pattern = '#' + escapeRegex(oldName) + '(?![a-zA-Z0-9_.-])';
     
     // Replace all occurrences
     var searchResult = body.findText(pattern);
@@ -566,8 +573,8 @@ function deleteTag(tagName) {
     var doc = DocumentApp.getActiveDocument();
     var body = doc.getBody();
     
-    // Create regex pattern
-    var pattern = '#' + tagName + '(?![a-zA-Z0-9_-])';
+    // Create regex pattern - escape special regex characters
+    var pattern = '#' + escapeRegex(tagName) + '(?![a-zA-Z0-9_.-])';
     
     // Find and remove all instances
     var searchResult = body.findText(pattern);
@@ -639,7 +646,8 @@ function highlightTag(tagName) {
   try {
     var doc = DocumentApp.getActiveDocument();
     var body = doc.getBody();
-    var pattern = '#' + tagName + '(?![a-zA-Z0-9_-])';
+    // Create regex pattern - escape special regex characters
+    var pattern = '#' + escapeRegex(tagName) + '(?![a-zA-Z0-9_.-])';
     
     var rangeBuilder = doc.newRange();
     var searchResult = body.findText(pattern);
