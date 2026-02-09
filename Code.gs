@@ -1,12 +1,12 @@
 /**
- * Research Tag Manager for Google Docs
+ * PaperTrail - Research Tag Manager for Google Docs
  * Code.gs - Backend Script 
  */
 
 // Install menu when document opens
 function onOpen() {
   DocumentApp.getUi()
-    .createMenu('Tag Manager')
+    .createMenu('PaperTrail')
     .addItem('Open Tag Sidebar', 'showSidebar')
     .addItem('Refresh Tags', 'refreshAllTags')
     .addItem('Enable Hashtag Autocomplete', 'enableHashtagAutocomplete')
@@ -20,15 +20,17 @@ function onOpen() {
     HtmlService.createHtmlOutput('<p style="padding:8px;font-size:12px;"><strong>💡 Tips:</strong><br>• Press <kbd style="background:#f0f0f0;padding:2px 6px;border-radius:3px;border:1px solid #ccc;">Shift+K</kbd> to toggle sidebar<br>• Use <kbd style="background:#f0f0f0;padding:2px 6px;border-radius:3px;border:1px solid #ccc;">#</kbd> + type to autocomplete hashtags</p>')
       .setWidth(350)
       .setHeight(100),
-    'Tag Manager Tips'
+    'PaperTrail Tips'
   );
 }
 
 // Show the sidebar
 function showSidebar() {
   var html = HtmlService.createHtmlOutputFromFile('Index')
-    .setTitle('Tag Manager')
-    .setWidth(360);
+    .setTitle('PaperTrail')
+    .setWidth(360)
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
   DocumentApp.getUi().showSidebar(html);
 }
 
@@ -62,7 +64,7 @@ function extractHashtagsFromDocument() {
     Logger.log('Found ' + matches.length + ' hashtags');
     
     if (matches.length === 0) {
-      return { tags: {}, hierarchy: {} };
+      return {};
     }
     
     // Count occurrences and organize by hierarchy
@@ -305,6 +307,7 @@ function getOrCreateTagMetadata(tagName) {
       children: children,
       depth: isNested ? tagName.split('.').length : 1
     };
+
     
     // Save metadata
     properties.setProperty(key, JSON.stringify(metadata));
@@ -320,11 +323,7 @@ function getOrCreateTagMetadata(tagName) {
       color: '#1A73E8',
       project: '',
       description: '',
-      items: [],
-      isNested: false,
-      parent: null,
-      children: [],
-      depth: 1
+      items: []
     };
   }
 }
@@ -520,6 +519,13 @@ function updateProjectsWithNewTagInfo(tagName, metadata) {
 }
 
 /**
+ * Escape special regex characters
+ */
+function escapeRegex(string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
  * Rename tag throughout document
  */
 function renameTagInDocument(oldName, newName) {
@@ -527,8 +533,8 @@ function renameTagInDocument(oldName, newName) {
     var doc = DocumentApp.getActiveDocument();
     var body = doc.getBody();
     
-    // Create regex pattern for the old tag
-    var pattern = '#' + oldName + '(?![a-zA-Z0-9_-])';
+    // Create regex pattern - escape special regex characters
+    var pattern = '#' + escapeRegex(oldName) + '(?![a-zA-Z0-9_.-])';
     
     // Replace all occurrences
     var searchResult = body.findText(pattern);
@@ -567,8 +573,8 @@ function deleteTag(tagName) {
     var doc = DocumentApp.getActiveDocument();
     var body = doc.getBody();
     
-    // Create regex pattern
-    var pattern = '#' + tagName + '(?![a-zA-Z0-9_-])';
+    // Create regex pattern - escape special regex characters
+    var pattern = '#' + escapeRegex(tagName) + '(?![a-zA-Z0-9_.-])';
     
     // Find and remove all instances
     var searchResult = body.findText(pattern);
@@ -640,7 +646,8 @@ function highlightTag(tagName) {
   try {
     var doc = DocumentApp.getActiveDocument();
     var body = doc.getBody();
-    var pattern = '#' + tagName + '(?![a-zA-Z0-9_-])';
+    // Create regex pattern - escape special regex characters
+    var pattern = '#' + escapeRegex(tagName) + '(?![a-zA-Z0-9_.-])';
     
     var rangeBuilder = doc.newRange();
     var searchResult = body.findText(pattern);
@@ -734,7 +741,7 @@ function enableHashtagAutocomplete() {
   var ui = DocumentApp.getUi();
   var response = ui.alert(
     'Hashtag Autocomplete',
-    'This feature is built-in! Just type a hashtag followed by a letter or number, and autocomplete suggestions will appear.\n\nExample: Type \"#imp\" and you\'ll see suggestions for tags containing \"imp\".',
+    'This feature is built-in! Just type a hashtag followed by a letter or number, and autocomplete suggestions will appear.\n\nExample: Type "#imp" and you\'ll see suggestions for tags containing "imp".',
     ui.ButtonSet.OK
   );
 }
@@ -781,7 +788,132 @@ function getHashtagSuggestions(partialTag) {
       });
     }
     
-    // Filter by partial match (case-insensitive)\n    var query = partialTag.toLowerCase();\n    var suggestions = allTagsList\n      .filter(tag => tag.name.toLowerCase().includes(query))\n      .sort((a, b) => b.count - a.count)\n      .slice(0, 5); // Limit to 5 suggestions\n    \n    return {\n      success: true,\n      suggestions: suggestions,\n      count: suggestions.length\n    };\n  } catch (e) {\n    Logger.log('Error getting hashtag suggestions: ' + e.toString());\n    return { success: false, suggestions: [], error: e.toString() };\n  }\n}\n\n/**\n * Show hashtag autocomplete dialog for the user\n */\nfunction showHashtagAutocomplete() {\n  try {\n    var doc = DocumentApp.getActiveDocument();\n    var selection = doc.getSelection();\n    \n    if (!selection) {\n      DocumentApp.getUi().alert('Please place your cursor in the document where you want to add a hashtag.');\n      return;\n    }\n    \n    // Get the selected element\n    var selectedElement = selection.getRangeElements()[0];\n    var text = selectedElement.getElement().asText().getText();\n    var offset = selection.getRangeElements()[0].getStartOffset();\n    \n    // Find hashtag pattern before cursor\n    var beforeCursor = text.substring(0, offset);\n    var hashtagMatch = beforeCursor.match(/#([a-zA-Z0-9_-]*)$/);\n    \n    if (!hashtagMatch) {\n      return;\n    }\n    \n    var partialTag = hashtagMatch[1];\n    var suggestions = getHashtagSuggestions(partialTag);\n    \n    if (suggestions.count === 0) {\n      return;\n    }\n    \n    // Create HTML for autocomplete dialog\n    var html = HtmlService.createHtmlOutput(`\n      <div style=\"font-family: Arial, sans-serif; width: 250px;\">\n        <div style=\"margin-bottom: 10px;\">\n          <div style=\"font-weight: bold; margin-bottom: 8px; color: #202124;\">Hashtag Suggestions</div>\n          <div id=\"suggestions\"></div>\n        </div>\n        <div style=\"font-size: 11px; color: #5f6368; margin-top: 10px;\">\n          Click a suggestion to insert it (supports nested: #Parent.Child)\n        </div>\n      </div>\n      <script>\n        var suggestions = ${JSON.stringify(suggestions.suggestions)};\n        var partial = '${partialTag}';\n        \n        var html = suggestions.map(tag => `\n          <div onclick=\"google.script.run.insertHashtag('${tag.name}'); google.script.host.close();\" \n               style=\"padding: 8px; margin: 4px 0; background: #f8f9fa; border-radius: 4px; cursor: pointer; border-left: 3px solid ${tag.color};\">\n            <span style=\"font-weight: 500;\">#${tag.name}</span>\n            <span style=\"font-size: 11px; color: #5f6368; margin-left: 8px;\">[${tag.count}]</span>\n          </div>\n        `).join('');\n        \n        document.getElementById('suggestions').innerHTML = html;\n      </script>\n    `);\n    \n    DocumentApp.getUi().showModelessDialog(html, 'Insert Hashtag');\n  } catch (e) {\n    Logger.log('Error in showHashtagAutocomplete: ' + e.toString());\n  }\n}\n\n/**\n * Insert a hashtag at the current cursor position\n */\nfunction insertHashtag(tagName) {\n  try {\n    var doc = DocumentApp.getActiveDocument();\n    var selection = doc.getSelection();\n    \n    if (!selection) {\n      return;\n    }\n    \n    var selectedElement = selection.getRangeElements()[0];\n    var text = selectedElement.getElement().asText();\n    var offset = selection.getRangeElements()[0].getStartOffset();\n    \n    // Find the hashtag pattern and replace it\n    var beforeCursor = text.getText().substring(0, offset);\n    var hashtagMatch = beforeCursor.match(/#([a-zA-Z0-9_-]*)$/);\n    \n    if (hashtagMatch) {\n      var matchStart = offset - hashtagMatch[0].length;\n      var matchEnd = offset - 1;\n      \n      // Delete the partial hashtag\n      text.deleteText(matchStart, matchEnd);\n      // Insert the complete hashtag\n      text.insertText(matchStart, '#' + tagName);\n    }\n  } catch (e) {\n    Logger.log('Error inserting hashtag: ' + e.toString());\n  }\n}\n\n/**\n * Test function to debug hashtag extraction\n */\nfunction testTagExtraction() {\n  var tags = extractHashtagsFromDocument();\n  Logger.log('Tags found: ' + JSON.stringify(tags));\n  return tags;\n}
+    // Filter by partial match (case-insensitive)
+    var query = partialTag.toLowerCase();
+    var suggestions = allTagsList
+      .filter(tag => tag.name.toLowerCase().includes(query))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5); // Limit to 5 suggestions
+    
+    return {
+      success: true,
+      suggestions: suggestions,
+      count: suggestions.length
+    };
+  } catch (e) {
+    Logger.log('Error getting hashtag suggestions: ' + e.toString());
+    return { success: false, suggestions: [], error: e.toString() };
+  }
+}
+
+/**
+ * Show hashtag autocomplete dialog for the user
+ */
+function showHashtagAutocomplete() {
+  try {
+    var doc = DocumentApp.getActiveDocument();
+    var selection = doc.getSelection();
+    
+    if (!selection) {
+      DocumentApp.getUi().alert('Please place your cursor in the document where you want to add a hashtag.');
+      return;
+    }
+    
+    // Get the selected element
+    var selectedElement = selection.getRangeElements()[0];
+    var text = selectedElement.getElement().asText().getText();
+    var offset = selection.getRangeElements()[0].getStartOffset();
+    
+    // Find hashtag pattern before cursor (now supports nested tags with dots)
+    var beforeCursor = text.substring(0, offset);
+    var hashtagMatch = beforeCursor.match(/#([a-zA-Z0-9_.-]*)$/);
+    
+    if (!hashtagMatch) {
+      return;
+    }
+    
+    var partialTag = hashtagMatch[1];
+    var suggestions = getHashtagSuggestions(partialTag);
+    
+    if (suggestions.count === 0) {
+      return;
+    }
+    
+    // Create HTML for autocomplete dialog
+    var html = HtmlService.createHtmlOutput(`
+      <div style="font-family: Arial, sans-serif; width: 250px;">
+        <div style="margin-bottom: 10px;">
+          <div style="font-weight: bold; margin-bottom: 8px; color: #202124;">Hashtag Suggestions</div>
+          <div id="suggestions"></div>
+        </div>
+        <div style="font-size: 11px; color: #5f6368; margin-top: 10px;">
+          Click a suggestion to insert it (supports nested: #Parent.Child)
+        </div>
+      </div>
+      <script>
+        var suggestionsList = ${JSON.stringify(suggestions.suggestions)};
+        var partial = '${partialTag}';
+        
+        var html = suggestionsList.map(function(tag) {
+          return '<div onclick="google.script.run.insertHashtag(\'' + tag.name + '\'); google.script.host.close();" ' +
+                 'style="padding: 8px; margin: 4px 0; background: #f8f9fa; border-radius: 4px; cursor: pointer; border-left: 3px solid ' + tag.color + ';">' +
+                 '<span style="font-weight: 500;">#' + tag.name + '</span>' +
+                 '<span style="font-size: 11px; color: #5f6368; margin-left: 8px;">[' + tag.count + ']</span>' +
+                 '</div>';
+        }).join('');
+        
+        document.getElementById('suggestions').innerHTML = html;
+      </script>
+    `);
+    
+    DocumentApp.getUi().showModelessDialog(html, 'Insert Hashtag');
+  } catch (e) {
+    Logger.log('Error in showHashtagAutocomplete: ' + e.toString());
+  }
+}
+
+/**
+ * Insert a hashtag at the current cursor position (supports nested tags)
+ */
+function insertHashtag(tagName) {
+  try {
+    var doc = DocumentApp.getActiveDocument();
+    var selection = doc.getSelection();
+    
+    if (!selection) {
+      return;
+    }
+    
+    var selectedElement = selection.getRangeElements()[0];
+    var text = selectedElement.getElement().asText();
+    var offset = selection.getRangeElements()[0].getStartOffset();
+    
+    // Find the hashtag pattern and replace it (now supports nested with dots)
+    var beforeCursor = text.getText().substring(0, offset);
+    var hashtagMatch = beforeCursor.match(/#([a-zA-Z0-9_.-]*)$/);
+    
+    if (hashtagMatch) {
+      var matchStart = offset - hashtagMatch[0].length;
+      var matchEnd = offset - 1;
+      
+      // Delete the partial hashtag
+      text.deleteText(matchStart, matchEnd);
+      // Insert the complete hashtag
+      text.insertText(matchStart, '#' + tagName);
+    }
+  } catch (e) {
+    Logger.log('Error inserting hashtag: ' + e.toString());
+  }
+}
+
+/**
+ * Test function to debug hashtag extraction
+ */
+function testTagExtraction() {
+  var tags = extractHashtagsFromDocument();
+  Logger.log('Tags found: ' + JSON.stringify(tags));
+  return tags;
+}
 
 /**
  * Clear all stored data (for debugging)

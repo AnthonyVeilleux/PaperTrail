@@ -2,6 +2,9 @@
 <html>
 <head>
   <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Cache buster: v2.1.0 -->
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: 'Google Sans', Arial, sans-serif; font-size: 14px; color: #202124; background: #fff; }
@@ -18,25 +21,55 @@
     
     .content { padding: 12px; max-height: calc(100vh - 250px); overflow-y: auto; }
     
-    .project { margin-bottom: 8px; }
-    .project-header { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 8px; cursor: pointer; }
-    .project-header:hover { background: #f8f9fa; }
-    .project-name { font-size: 13px; font-weight: 600; flex: 1; }
+    .project { margin-bottom: 12px; }
+    .project-header { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; cursor: pointer; transition: all 0.15s ease; }
+    .project-header:hover { background: #f1f3f4; transform: translateX(2px); }
+    .project-name { font-size: 13px; font-weight: 600; flex: 1; color: #202124; }
     
-    .tags-list { margin-left: 24px; padding-left: 8px; border-left: 2px solid #f1f3f4; margin-top: 4px; }
-    .tag-item { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; border-radius: 6px; cursor: pointer; margin-bottom: 2px; }
-    .tag-item:hover { background: #f8f9fa; }
+    .tags-list { margin-left: 8px; padding-left: 12px; border-left: 3px solid #d0d4d8; margin-top: 8px; }
+    .tag-item { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-radius: 8px; cursor: pointer; margin-bottom: 4px; transition: all 0.2s ease; }
+    .tag-item:hover { background: #f8f9fa; transform: translateX(2px); }
+    .tag-item.parent-tag { font-weight: 600; }
     
-    .tag-main { display: flex; align-items: center; gap: 8px; flex: 1; }
-    .tag-dot { width: 8px; height: 8px; border-radius: 50%; }
-    .tag-name { font-size: 13px; font-weight: 500; flex: 1; }
-    .tag-count-badge { font-size: 11px; color: #5f6368; }
+    .tag-expand-icon { 
+      width: 20px; 
+      height: 20px; 
+      display: flex; 
+      align-items: center; 
+      justify-content: center;
+      cursor: pointer; 
+      font-size: 12px; 
+      user-select: none;
+      transition: transform 0.2s ease;
+      border-radius: 4px;
+    }
+    .tag-expand-icon:hover { background: #e8eaed; }
+    .tag-expand-icon.expanded { transform: rotate(90deg); }
     
-    .tag-actions { display: none; gap: 2px; }
-    .tag-item:hover .tag-actions { display: flex; }
-    .tag-action-btn { padding: 4px; background: transparent; border: none; cursor: pointer; border-radius: 4px; }
-    .tag-action-btn:hover { background: #e8eaed; }
-    .tag-action-btn.delete:hover { background: #fce8e6; }
+    .tag-main { display: flex; align-items: center; gap: 10px; flex: 1; }
+    .tag-dot { width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .tag-name { font-size: 13px; font-weight: 500; flex: 1; color: #202124; }
+    .tag-count-badge { font-size: 11px; color: #5f6368; background: #f1f3f4; padding: 2px 6px; border-radius: 4px; }
+    
+    .nested-children { margin-left: 20px; padding-left: 12px; border-left: 2px dashed #dadce0; margin-top: 4px; }
+    .child-tag-item { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: 6px; margin-bottom: 3px; background: transparent; transition: all 0.15s ease; }
+    .child-tag-item:hover { background: #f8f9fa; }
+    
+    /* Depth-based shading for nested items */
+    .nested-children .tag-item { background: rgba(248, 249, 250, 0.5); }
+    .nested-children .nested-children .tag-item { background: rgba(241, 243, 244, 0.6); }
+    .nested-children .nested-children .nested-children .tag-item { background: rgba(232, 234, 237, 0.4); }
+    
+    .tag-actions { display: none; gap: 4px; }
+    .tag-item:hover .tag-actions, .child-tag-item:hover .tag-actions { display: flex; animation: slideIn 0.2s ease; }
+    .tag-action-btn { padding: 6px 8px; background: transparent; border: none; cursor: pointer; border-radius: 4px; transition: all 0.15s ease; font-size: 14px; }
+    .tag-action-btn:hover { background: #dadce0; transform: scale(1.1); }
+    .tag-action-btn.delete:hover { background: #fce8e6; color: #d93025; }
+    
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(-8px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
     
     .footer { padding: 12px; border-top: 1px solid #e8eaed; }
     .footer-hint { font-size: 11px; color: #5f6368; text-align: center; padding: 8px; background: #e8f0fe; border-radius: 8px; }
@@ -136,7 +169,7 @@
   </div>
 
   <div class="footer">
-    <div class="footer-hint">💡 Type <strong>#tagname</strong> in your document</div>
+    <div class="footer-hint">💡 Type <strong>#tagname</strong> or nested <strong>#parent.child</strong> in your document</div>
   </div>
 
   <!-- Edit Modal -->
@@ -195,6 +228,7 @@
     let allTags = null;
     let currentTag = null;
     let expandedProjects = [];
+    let expandedTags = {};
 
     const colors = [
       { value: '#1A73E8', name: 'Blue' },
@@ -473,9 +507,195 @@
       
       if (currentFilter === 'projects') {
         renderProjectsView(data.projects);
+      } else if (currentFilter === 'date') {
+        renderDateView(data.projects);
+      } else if (currentFilter === 'global') {
+        renderGlobalView(data.projects);
       } else {
         content.innerHTML = '<div class="empty-state"><div class="empty-title">Coming Soon</div></div>';
       }
+    }
+
+    function renderDateView(projects) {
+      const content = document.getElementById('content');
+      
+      // Collect all tags with their project info
+      const tagsByDate = {};
+      const today = new Date().toISOString().split('T')[0];
+      const defaultDate = today;
+      
+      projects.forEach(project => {
+        if (project.tags) {
+          project.tags.forEach(tag => {
+            // Group by creation/usage date (using current date as placeholder)
+            // In a real implementation, this would come from tag metadata
+            const dateKey = defaultDate;
+            
+            if (!tagsByDate[dateKey]) {
+              tagsByDate[dateKey] = [];
+            }
+            
+            tagsByDate[dateKey].push({
+              ...tag,
+              projectName: project.name,
+              projectId: project.id
+            });
+          });
+        }
+      });
+      
+      if (Object.keys(tagsByDate).length === 0) {
+        content.innerHTML = `
+          <div class="empty-state">
+            <div style="font-size:48px;margin-bottom:12px;">📅</div>
+            <div class="empty-title">No Tags by Date</div>
+            <p style="font-size:12px;color:#80868b;margin-top:8px;">Tags will be organized by date here</p>
+          </div>
+        `;
+        return;
+      }
+      
+      let html = '';
+      
+      // Sort dates in descending order
+      Object.keys(tagsByDate).sort().reverse().forEach(dateKey => {
+        const tags = tagsByDate[dateKey];
+        const totalCount = tags.reduce((sum, tag) => sum + tag.count, 0);
+        
+        // Format date nicely
+        const date = new Date(dateKey + 'T00:00:00');
+        const today = new Date().toISOString().split('T')[0];
+        let dateLabel = dateKey;
+        
+        if (dateKey === today) {
+          dateLabel = 'Today';
+        } else {
+          dateLabel = date.toLocaleDateString('en-US', { 
+            weekday: 'short', 
+            month: 'short', 
+            day: 'numeric',
+            year: 'numeric'
+          });
+        }
+        
+        html += `
+          <div class="project">
+            <div class="project-header" onclick="toggleDateGroup('${dateKey}')">
+              <span style="font-size:16px;">📅</span>
+              <div class="project-name">${dateLabel} <span class="tag-count">${totalCount}</span></div>
+            </div>
+        `;
+        
+        const isExpanded = expandedProjects.includes(dateKey);
+        if (isExpanded) {
+          html += '<div class="tags-list">';
+          tags.forEach(tag => {
+            const tagColor = tag.color || '#80868b';
+            html += `
+              <div class="tag-item">
+                <div class="tag-main">
+                  <div class="tag-dot" style="background-color:${tagColor}; flex-shrink: 0;"></div>
+                  <span class="tag-name">#${tag.name}</span>
+                  ${tag.count > 0 ? `<span class="tag-count-badge">${tag.count}</span>` : ''}
+                  <span style="font-size:11px;color:#5f6368;">in ${tag.projectName}</span>
+                </div>
+                <div class="tag-actions">
+                  <button class="tag-action-btn" onclick="openEditModal('${tag.name}', '${tag.projectId}', event)" title="Edit">✏️</button>
+                  <button class="tag-action-btn delete" onclick="openDeleteModal('${tag.name}', '${tag.projectId}', event)" title="Delete">🗑️</button>
+                </div>
+              </div>
+            `;
+          });
+          html += '</div>';
+        }
+        
+        html += '</div>';
+      });
+      
+      content.innerHTML = html;
+    }
+
+    function renderGlobalView(projects) {
+      const content = document.getElementById('content');
+      
+      // Collect all unique tags from all projects
+      const allTagsMap = {};
+      
+      projects.forEach(project => {
+        if (project.tags) {
+          project.tags.forEach(tag => {
+            const baseTagName = tag.name.split('.')[0]; // Get root tag name
+            
+            if (!allTagsMap[tag.name]) {
+              allTagsMap[tag.name] = {
+                ...tag,
+                projects: [],
+                totalCount: 0
+              };
+            }
+            
+            if (!allTagsMap[tag.name].projects.find(p => p.id === project.id)) {
+              allTagsMap[tag.name].projects.push({
+                id: project.id,
+                name: project.name
+              });
+            }
+            
+            allTagsMap[tag.name].totalCount += tag.count;
+          });
+        }
+      });
+      
+      const allTagsList = Object.values(allTagsMap)
+        .sort((a, b) => b.totalCount - a.totalCount); // Sort by usage count
+      
+      if (allTagsList.length === 0) {
+        content.innerHTML = `
+          <div class="empty-state">
+            <div style="font-size:48px;margin-bottom:12px;">🌍</div>
+            <div class="empty-title">No Global Tags</div>
+            <p style="font-size:12px;color:#80868b;margin-top:8px;">Start creating tags to see them here</p>
+          </div>
+        `;
+        return;
+      }
+      
+      let html = '<div style="padding:4px;">';
+      
+      allTagsList.forEach(tag => {
+        const tagColor = tag.color || '#80868b';
+        const projectList = tag.projects.map(p => p.name).join(', ');
+        
+        html += `
+          <div class="tag-item" style="padding: 10px 12px; border-radius: 8px; margin-bottom: 6px; background: #f8f9fa;">
+            <div class="tag-main">
+              <div class="tag-dot" style="background-color:${tagColor}; flex-shrink: 0;"></div>
+              <div style="flex: 1;">
+                <span class="tag-name">#${tag.name}</span>
+                <div style="font-size:11px;color:#5f6368;margin-top:2px;">Used in: ${projectList}</div>
+              </div>
+              <span class="tag-count-badge">${tag.totalCount}</span>
+            </div>
+            <div class="tag-actions">
+              <button class="tag-action-btn" onclick="openEditModal('${tag.name}', '${tag.projects[0].id}', event)" title="Edit">✏️</button>
+              <button class="tag-action-btn delete" onclick="openDeleteModal('${tag.name}', '${tag.projects[0].id}', event)" title="Delete">🗑️</button>
+            </div>
+          </div>
+        `;
+      });
+      
+      html += '</div>';
+      content.innerHTML = html;
+    }
+
+    function toggleDateGroup(dateKey) {
+      const index = expandedProjects.indexOf(dateKey);
+      if (index > -1) {
+        expandedProjects.splice(index, 1);
+      } else {
+        expandedProjects.push(dateKey);
+      }
+      renderTags(allTags);
     }
 
     function renderProjectsView(projects) {
@@ -512,29 +732,117 @@
       content.innerHTML = html;
     }
 
+    function buildTagTree(tags) {
+      const tree = {};
+      
+      tags.forEach(tag => {
+        const parts = tag.name.split('.');
+        let current = tree;
+        let fullPath = '';
+        
+        for (let i = 0; i < parts.length; i++) {
+          const part = parts[i];
+          fullPath = fullPath ? fullPath + '.' + part : part;
+          const isLast = i === parts.length - 1;
+          
+          if (!current[part]) {
+            current[part] = { 
+              children: {}, 
+              tag: null, 
+              fullPath: fullPath,
+              isIntermediate: !isLast
+            };
+          }
+          
+          if (isLast) {
+            current[part].tag = tag;
+            current[part].isIntermediate = false;
+          }
+          
+          current = current[part].children;
+        }
+      });
+      
+      return tree;
+    }
+
+    function renderTagNode(node, key, depth, projectId) {
+      if (!node) return '';
+      
+      const tag = node.tag;
+      const fullPath = node.fullPath;
+      const hasChildren = Object.keys(node.children).length > 0;
+      const isIntermediate = node.isIntermediate && !tag; // Intermediate if no tag but has children
+      const isExpanded = expandedTags && expandedTags[fullPath];
+      
+      // For intermediate nodes without a tag, they should only show if expanded
+      // For actual tags, show the expand button only if they have children
+      const shouldShowExpandButton = hasChildren && tag;
+      const tagColor = tag ? tag.color : '#80868b';
+      const tagCount = tag ? tag.count : 0;
+      
+      // If this is an intermediate node (no tag), don't render it as a node
+      // Just render its children directly
+      if (isIntermediate && !tag && hasChildren) {
+        let html = '<div class="nested-children">';
+        Object.keys(node.children).sort().forEach(childKey => {
+          html += renderTagNode(node.children[childKey], childKey, depth, projectId);
+        });
+        html += '</div>';
+        return html;
+      }
+      
+      let html = `
+        <div class="tag-item ${hasChildren ? 'parent-tag' : ''}" data-depth="${depth}">
+          <div class="tag-main">
+            ${shouldShowExpandButton ? `<span class="tag-expand-icon ${isExpanded ? 'expanded' : ''}" onclick="toggleNestedTag('${fullPath}', event)" title="Toggle children">▶</span>` : '<span style="width:20px;"></span>'}
+            <div class="tag-dot" style="background-color:${tagColor}; flex-shrink: 0;"></div>
+            <span class="tag-name">#${key}</span>
+            ${tagCount > 0 ? `<span class="tag-count-badge">${tagCount}</span>` : ''}
+          </div>
+          ${tag ? `<div class="tag-actions">
+            <button class="tag-action-btn" onclick="openEditModal('${fullPath}', '${projectId}', event)" title="Edit">✏️</button>
+            <button class="tag-action-btn delete" onclick="openDeleteModal('${fullPath}', '${projectId}', event)" title="Delete">🗑️</button>
+          </div>` : ''}
+        </div>
+      `;
+      
+      // Render children if expanded
+      if (isExpanded && hasChildren) {
+        html += '<div class="nested-children">';
+        Object.keys(node.children).sort().forEach(childKey => {
+          html += renderTagNode(node.children[childKey], childKey, depth + 1, projectId);
+        });
+        html += '</div>';
+      }
+      
+      return html;
+    }
+
     function renderProjectTags(project) {
       if (!project.tags || project.tags.length === 0) {
         return '<div class="tags-list"><p style="padding:20px;color:#80868b;font-size:12px;">No tags yet</p></div>';
       }
 
+      // Build tree structure from flat tag list
+      const tagTree = buildTagTree(project.tags);
+      
       let html = '<div class="tags-list">';
-      project.tags.forEach(tag => {
-        html += `
-          <div class="tag-item">
-            <div class="tag-main">
-              <div class="tag-dot" style="background-color:${tag.color}"></div>
-              <span class="tag-name">#${tag.name}</span>
-              <span class="tag-count-badge">${tag.count}</span>
-            </div>
-            <div class="tag-actions">
-              <button class="tag-action-btn" onclick="openEditModal('${tag.name}', '${project.id}', event)" title="Edit">✏️</button>
-              <button class="tag-action-btn delete" onclick="openDeleteModal('${tag.name}', '${project.id}', event)" title="Delete">🗑️</button>
-            </div>
-          </div>
-        `;
+      
+      // Render all root-level tags
+      Object.keys(tagTree).forEach(key => {
+        html += renderTagNode(tagTree[key], key, 0, project.id);
       });
+      
       html += '</div>';
       return html;
+    }
+    
+    function toggleNestedTag(parentName, event) {
+      if (event) event.stopPropagation();
+      if (!expandedTags) expandedTags = {};
+      expandedTags[parentName] = !expandedTags[parentName];
+      renderTags(allTags);
     }
 
     function toggleProject(projectName) {
@@ -549,6 +857,7 @@
 
     function setFilter(filter) {
       currentFilter = filter;
+      expandedProjects = []; // Reset expansion state when changing filters
       document.querySelectorAll('.filter-tab').forEach(tab => {
         tab.classList.remove('active');
         if (tab.dataset.filter === filter) {
