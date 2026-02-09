@@ -504,9 +504,195 @@
       
       if (currentFilter === 'projects') {
         renderProjectsView(data.projects);
+      } else if (currentFilter === 'date') {
+        renderDateView(data.projects);
+      } else if (currentFilter === 'global') {
+        renderGlobalView(data.projects);
       } else {
         content.innerHTML = '<div class="empty-state"><div class="empty-title">Coming Soon</div></div>';
       }
+    }
+
+    function renderDateView(projects) {
+      const content = document.getElementById('content');
+      
+      // Collect all tags with their project info
+      const tagsByDate = {};
+      const today = new Date().toISOString().split('T')[0];
+      const defaultDate = today;
+      
+      projects.forEach(project => {
+        if (project.tags) {
+          project.tags.forEach(tag => {
+            // Group by creation/usage date (using current date as placeholder)
+            // In a real implementation, this would come from tag metadata
+            const dateKey = defaultDate;
+            
+            if (!tagsByDate[dateKey]) {
+              tagsByDate[dateKey] = [];
+            }
+            
+            tagsByDate[dateKey].push({
+              ...tag,
+              projectName: project.name,
+              projectId: project.id
+            });
+          });
+        }
+      });
+      
+      if (Object.keys(tagsByDate).length === 0) {
+        content.innerHTML = `
+          <div class="empty-state">
+            <div style="font-size:48px;margin-bottom:12px;">📅</div>
+            <div class="empty-title">No Tags by Date</div>
+            <p style="font-size:12px;color:#80868b;margin-top:8px;">Tags will be organized by date here</p>
+          </div>
+        `;
+        return;
+      }
+      
+      let html = '';
+      
+      // Sort dates in descending order
+      Object.keys(tagsByDate).sort().reverse().forEach(dateKey => {
+        const tags = tagsByDate[dateKey];
+        const totalCount = tags.reduce((sum, tag) => sum + tag.count, 0);
+        
+        // Format date nicely
+        const date = new Date(dateKey + 'T00:00:00');
+        const today = new Date().toISOString().split('T')[0];
+        let dateLabel = dateKey;
+        
+        if (dateKey === today) {
+          dateLabel = 'Today';
+        } else {
+          dateLabel = date.toLocaleDateString('en-US', { 
+            weekday: 'short', 
+            month: 'short', 
+            day: 'numeric',
+            year: 'numeric'
+          });
+        }
+        
+        html += `
+          <div class="project">
+            <div class="project-header" onclick="toggleDateGroup('${dateKey}')">
+              <span style="font-size:16px;">📅</span>
+              <div class="project-name">${dateLabel} <span class="tag-count">${totalCount}</span></div>
+            </div>
+        `;
+        
+        const isExpanded = expandedProjects.includes(dateKey);
+        if (isExpanded) {
+          html += '<div class="tags-list">';
+          tags.forEach(tag => {
+            const tagColor = tag.color || '#80868b';
+            html += `
+              <div class="tag-item">
+                <div class="tag-main">
+                  <div class="tag-dot" style="background-color:${tagColor}; flex-shrink: 0;"></div>
+                  <span class="tag-name">#${tag.name}</span>
+                  ${tag.count > 0 ? `<span class="tag-count-badge">${tag.count}</span>` : ''}
+                  <span style="font-size:11px;color:#5f6368;">in ${tag.projectName}</span>
+                </div>
+                <div class="tag-actions">
+                  <button class="tag-action-btn" onclick="openEditModal('${tag.name}', '${tag.projectId}', event)" title="Edit">✏️</button>
+                  <button class="tag-action-btn delete" onclick="openDeleteModal('${tag.name}', '${tag.projectId}', event)" title="Delete">🗑️</button>
+                </div>
+              </div>
+            `;
+          });
+          html += '</div>';
+        }
+        
+        html += '</div>';
+      });
+      
+      content.innerHTML = html;
+    }
+
+    function renderGlobalView(projects) {
+      const content = document.getElementById('content');
+      
+      // Collect all unique tags from all projects
+      const allTagsMap = {};
+      
+      projects.forEach(project => {
+        if (project.tags) {
+          project.tags.forEach(tag => {
+            const baseTagName = tag.name.split('.')[0]; // Get root tag name
+            
+            if (!allTagsMap[tag.name]) {
+              allTagsMap[tag.name] = {
+                ...tag,
+                projects: [],
+                totalCount: 0
+              };
+            }
+            
+            if (!allTagsMap[tag.name].projects.find(p => p.id === project.id)) {
+              allTagsMap[tag.name].projects.push({
+                id: project.id,
+                name: project.name
+              });
+            }
+            
+            allTagsMap[tag.name].totalCount += tag.count;
+          });
+        }
+      });
+      
+      const allTagsList = Object.values(allTagsMap)
+        .sort((a, b) => b.totalCount - a.totalCount); // Sort by usage count
+      
+      if (allTagsList.length === 0) {
+        content.innerHTML = `
+          <div class="empty-state">
+            <div style="font-size:48px;margin-bottom:12px;">🌍</div>
+            <div class="empty-title">No Global Tags</div>
+            <p style="font-size:12px;color:#80868b;margin-top:8px;">Start creating tags to see them here</p>
+          </div>
+        `;
+        return;
+      }
+      
+      let html = '<div style="padding:4px;">';
+      
+      allTagsList.forEach(tag => {
+        const tagColor = tag.color || '#80868b';
+        const projectList = tag.projects.map(p => p.name).join(', ');
+        
+        html += `
+          <div class="tag-item" style="padding: 10px 12px; border-radius: 8px; margin-bottom: 6px; background: #f8f9fa;">
+            <div class="tag-main">
+              <div class="tag-dot" style="background-color:${tagColor}; flex-shrink: 0;"></div>
+              <div style="flex: 1;">
+                <span class="tag-name">#${tag.name}</span>
+                <div style="font-size:11px;color:#5f6368;margin-top:2px;">Used in: ${projectList}</div>
+              </div>
+              <span class="tag-count-badge">${tag.totalCount}</span>
+            </div>
+            <div class="tag-actions">
+              <button class="tag-action-btn" onclick="openEditModal('${tag.name}', '${tag.projects[0].id}', event)" title="Edit">✏️</button>
+              <button class="tag-action-btn delete" onclick="openDeleteModal('${tag.name}', '${tag.projects[0].id}', event)" title="Delete">🗑️</button>
+            </div>
+          </div>
+        `;
+      });
+      
+      html += '</div>';
+      content.innerHTML = html;
+    }
+
+    function toggleDateGroup(dateKey) {
+      const index = expandedProjects.indexOf(dateKey);
+      if (index > -1) {
+        expandedProjects.splice(index, 1);
+      } else {
+        expandedProjects.push(dateKey);
+      }
+      renderTags(allTags);
     }
 
     function renderProjectsView(projects) {
@@ -652,6 +838,7 @@
 
     function setFilter(filter) {
       currentFilter = filter;
+      expandedProjects = []; // Reset expansion state when changing filters
       document.querySelectorAll('.filter-tab').forEach(tab => {
         tab.classList.remove('active');
         if (tab.dataset.filter === filter) {
