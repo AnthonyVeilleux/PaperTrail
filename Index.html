@@ -752,6 +752,11 @@
           
           if (isLast) {
             current[part].tag = tag;
+          } else {
+            // Auto-expand intermediate nodes on initial load
+            if (!expandedTags[fullPath]) {
+              expandedTags[fullPath] = true;
+            }
           }
           
           current = current[part].children;
@@ -788,8 +793,8 @@
         </div>
       `;
       
-      // Render children if expanded or if it's an intermediate node without expansion needed
-      if ((isExpanded || !tag) && hasChildren) {
+      // Render children if expanded
+      if (isExpanded && hasChildren) {
         html += '<div class="nested-children">';
         Object.keys(node.children).sort().forEach(childKey => {
           html += renderTagNode(node.children[childKey], childKey, depth + 1, projectId);
