@@ -17,229 +17,6 @@ window.onload = function (){
       // included, separated by spaces.
       const SCOPES = 'https://www.googleapis.com/auth/drive.activity.readonly';
 
-      let tokenClient;
-      let gapiInited = false;
-      let gisInited = false;
-      gapiLoaded()
-      gisLoaded()
-      document.getElementById('authorize_button').style.visibility = 'hidden';
-      document.getElementById('signout_button').style.visibility = 'hidden';
-
-      /**
-       * Callback after api.js is loaded.
-       */
-      function gapiLoaded() {
-        gapi.load('client', initializeGapiClient);
-      }
-
-      /**
-       * Callback after the API client is loaded. Loads the
-       * discovery doc to initialize the API.
-       */
-      async function initializeGapiClient() {
-        await gapi.client.init({
-          apiKey: API_KEY,
-          discoveryDocs: [DISCOVERY_DOC],
-        });
-        gapiInited = true;
-        maybeEnableButtons();
-      }
-
-      /**
-       * Callback after Google Identity Services are loaded.
-       */
-      function gisLoaded() {
-        tokenClient = google.accounts.oauth2.initTokenClient({
-          client_id: CLIENT_ID,
-          scope: SCOPES,
-          callback: '', // defined later
-        });
-        gisInited = true;
-        maybeEnableButtons();
-      }
-
-      /**
-       * Enables user interaction after all libraries are loaded.
-       */
-      function maybeEnableButtons() {
-        if (gapiInited && gisInited) {
-          document.getElementById('authorize_button').style.visibility = 'visible';
-        }
-      }
-
-      /**
-       *  Sign in the user upon button click.
-       */
-      function handleAuthClick() {
-        tokenClient.callback = async (resp) => {
-          if (resp.error !== undefined) {
-            throw (resp);
-          }
-          document.getElementById('signout_button').style.visibility = 'visible';
-          document.getElementById('authorize_button').innerText = 'Refresh';
-          await listActivities();
-        };
-
-        if (gapi.client.getToken() === null) {
-          // Prompt the user to select a Google Account and ask for consent to share their data
-          // when establishing a new session.
-          tokenClient.requestAccessToken({prompt: 'consent'});
-        } else {
-          // Skip display of account chooser and consent dialog for an existing session.
-          tokenClient.requestAccessToken({prompt: ''});
-        }
-      }
-
-      /**
-       *  Sign out the user upon button click.
-       */
-      function handleSignoutClick() {
-        const token = gapi.client.getToken();
-        if (token !== null) {
-          google.accounts.oauth2.revoke(token.access_token);
-          gapi.client.setToken('');
-          document.getElementById('content').innerText = '';
-          document.getElementById('authorize_button').innerText = 'Timeline';
-          document.getElementById('signout_button').style.visibility = 'hidden';
-        }
-      }
-
-      /**
-       * Print recent activity.
-       */
-      async function listActivities() {
-        let response;
-        try {
-          response = await gapi.client.driveactivity.activity.query({
-            'pageSize': 1000,
-          });
-        } catch (err) {
-          document.getElementById('content').innerText = err.message;
-          return;
-        }
-
-        const activities = response.result.activities;
-        if (!activities || activities.length == 0) {
-          document.getElementById('content').innerText = 'No activities found.';
-          return;
-        }
-        // Flatten to string to display
-        const output = activities.reduce(
-            (str, activity) => {
-              const time = getTimeInfo(activity);
-              const action = getActionInfo(activity['primaryActionDetail']);
-              const actors = activity.actors.map(getActorInfo);
-              const targets = activity.targets.map(getTargetInfo);
-              return `${str}${time}: ${truncated(actors)}, ${action}, ${truncated(targets)}\n`;
-            },
-            'Activities:\n');
-        document.getElementById('content').innerText = output;
-      }
-
-      // Utility methods for formatting activity records
-
-      /**
-       * Returns a string representation of the first N elements in a list.
-       * @param {string[]} array - Values to join
-       * @param {number} limit - # of elements to show
-       * @return {string} formatted string
-       */
-      function truncated(array, limit = 2) {
-        const contents = array.slice(0, limit).join(', ');
-        const more = array.length > limit ? ', ...' : '';
-        return `[${contents}${more}]`;
-      }
-
-      /**
-       * Returns the first found property name in an object.
-       * @param {object} object - Object to search
-       * @return {string} key name or 'unknown'
-       */
-      function getOneOf(object) {
-        const props = Object.getOwnPropertyNames(object);
-        if (props.length === 0) {
-          return 'unknown';
-        }
-        return props[0];
-      }
-
-      /**
-       * Returns a time associated with an activity.
-       * @param {object} activity - Activity record
-       * @return {string} Formatted timestamp
-       */
-      function getTimeInfo(activity) {
-        if ('timestamp' in activity) {
-          return activity.timestamp;
-        }
-        if ('timeRange' in activity) {
-          return activity.timeRange.endTime;
-        }
-        return 'unknown';
-      }
-
-      /**
-       * Returns the type of action.
-       * @param {object} actionDetail
-       * @return {string} Action type as string
-       */
-      function getActionInfo(actionDetail) {
-        return getOneOf(actionDetail);
-      }
-
-      /**
-       * Returns user information, or the type of user if not a known user.
-       * @param {object} user - User record
-       * @return {string} user type as string
-       */
-      function getUserInfo(user) {
-        if ('knownUser' in user) {
-          const knownUser = user['knownUser'];
-          const isMe = knownUser['isCurrentUser'] || false;
-          return isMe ? 'people/me' : knownUser['personName'];
-        }
-        return getOneOf(user);
-      }
-
-      /**
-       * Returns actor information, or the type of actor if not a user.
-       * @param {object} actor - Actor record
-       * @return {string} actor type as string
-       */
-      function getActorInfo(actor) {
-        if ('user' in actor) {
-          return getUserInfo(actor['user']);
-        }
-        return getOneOf(actor);
-      }
-
-      /**
-       * Returns the type of a target and an associated title.
-       * @param {object} target - Activity target record
-       * @return {string} target type as string
-       */
-      function getTargetInfo(target) {
-        if ('driveItem' in target) {
-          const title = target.driveItem.title || 'unknown';
-          return `driveItem:"${title}"`;
-        }
-        if ('drive' in target) {
-          const title = target.drive.title || 'unknown';
-          return `drive:"${title}"`;
-        }
-        if ('fileComment' in target) {
-          const parent = target.fileComment.parent || {};
-          const title = parent.title || 'unknown';
-          return `fileComment:"${title}"`;
-        }
-        return `${getOneOf(target)}:unknown`;
-      }
-      /**
-     * Sample JavaScript code for drive.drives.list
-     * See instructions for running APIs Explorer code samples locally:
-     * https://developers.google.com/explorer-help/code-samples#javascript
-     */
-
     function authenticate() {
     return new Promise((resolve, reject) => {
         tokenClient = google.accounts.oauth2.initTokenClient({
@@ -317,12 +94,23 @@ window.onload = function (){
     console.log("Tags written:", res);
   }
 
-  var authorize = document.getElementById('authorize_button');
-  if (authorize != null){
-    authorize.onclick = function (){
-       handleAuthClick();
-    };
+  async function deleteTagFromFile(fileId, tagKey) {
+  try {
+    const res = await gapi.client.drive.files.update({
+      fileId,
+      supportsAllDrives: true,
+      resource: {
+        appProperties: {
+          [tagKey]: null
+        }
+      }
+    });
+
+    console.log(`Tag "${tagKey}" deleted`, res);
+  } catch (err) {
+    console.error("Delete tag error", err);
   }
+}
 
   var signout = document.getElementById('signout_button');
   if (signout != null){
@@ -331,10 +119,29 @@ window.onload = function (){
     };
   }
 
+  var deleteTag = document.getElementById('delete');
+  if (deleteTag != null){
+    deleteTag.style.visibility = 'hidden';
+    deleteTag.onclick = function(){
+      deleteTagFromFile("", "tag").then(execute);
+    }
+  }
+
   var content = document.getElementById('context');
   if (content != null){
+    content.style.visibility = 'hidden';
     content.onclick = function (){
-    loadClient().then(authenticate).then(setTags("", {number: "1", tag: "#Notes"})).then(execute);
+      setTags("", {tag: "#Note"}).then(execute);
+      document.getElementById('delete').style.visibility = 'visible';
+    };
+  }
+
+  var authorize = document.getElementById('authorize_button');
+  if (authorize != null){
+    authorize.onclick = function (){
+      authorize.innerHTML = "Change User";
+      loadClient().then(authenticate);
+      document.getElementById('context').style.visibility = 'visible';
     };
   }
 
