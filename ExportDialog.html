@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body{font-family: Arial, sans-serif; padding: 12px; }
+      label{display:block;margin-top:10px;font-weight:600; }
+      select { width: 100%; padding: 8px; margin-top:6px; }
+      button { margin-top: 12px; width: 100%;padding: 10px; cursor: pointer; }
+      .status { margin-top:12px;font-size:13px;}
+      a { word-break:break-all; }
+    </style>
+  </head>
+  <body>
+    <h3>Export Tagged Notes</h3>
+    <label for="tag">Tag</label>
+    <select id="tag"></select>
+    <label for="format">Format</label>
+    <select id="format">
+      <option value="DOC">Google Doc</option>
+      <option value="PDF">PDF</option>
+    </select>
+    <button onclick="exportNotes()">Export</button>
+
+    <div class="status" id="status"></div>
+
+    <script>
+      function setStatus(msg){//update statuys area in dialog
+        document.getElementById('status').innerHTML =msg;
+      }
+      function loadTags(){//load all avail. tags from doc, populate dropdown
+        google.script.run
+          .withSuccessHandler(function(tags) {
+            const sel =document.getElementById('tag');
+            sel.innerHTML ='';
+            tags.forEach(t=>{
+              const opt =document.createElement('option');
+              opt.value= t;
+              opt.textContent='#' +t;
+              sel.appendChild(opt);
+            });
+            if (tags.length=== 0) setStatus('No tags found in this document.');
+          })
+          .withFailureHandler(function(err) {
+            setStatus('Error loading tags: ' +err.message);
+          })
+          .getTagNamesForExport();
+      }
+      function exportNotes() {//export process for selected option
+        const tag =document.getElementById('tag').value;
+        const format= document.getElementById('format').value;
+        if (!tag) {
+          setStatus('Select a tag first.');
+          return;
+        }
+        setStatus('Exporting');
+        google.script.run
+          .withSuccessHandler(function(result){
+            setStatus('Done! <a href="' +result.url +'" target="_blank">Open exported file</a>');
+          })
+          .withFailureHandler(function(err) {
+            setStatus('Export failed: ' +err.message);
+          })
+          .exportTaggedNotes(tag,format);
+      }
+      loadTags();//load tags immediately on dialog open
+    </script>
+  </body>
+</html>
