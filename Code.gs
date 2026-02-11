@@ -931,3 +931,12 @@ function clearAllData() {
     ui.alert('Success', 'All tag data has been cleared.', ui.ButtonSet.OK);
   }
 }
+function touchTagsUpdated_() {
+  try {
+    PropertiesService.getDocumentProperties()
+      .setProperty('tags_last_updated',new Date().toISOString());
+  } catch (e) {
+    Logger.log('Error setting tags_last_updated: '+ e);
+  }
+}
+
