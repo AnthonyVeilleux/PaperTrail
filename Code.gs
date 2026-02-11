@@ -6,7 +6,7 @@
 // Install menu when document opens
 function onOpen() {
   DocumentApp.getUi()
-    .createMenu('Tag Manager')
+    .createMenu('PaperTrail')
     .addItem('Open Tag Sidebar', 'showSidebar')
     .addItem('Refresh Tags', 'refreshAllTags')
     .addItem('Enable Hashtag Autocomplete', 'enableHashtagAutocomplete')
