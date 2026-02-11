@@ -11,7 +11,7 @@ function onOpen() {
     .addItem('Refresh Tags', 'refreshAllTags')
     .addItem('Enable Hashtag Autocomplete', 'enableHashtagAutocomplete')
     .addSeparator()
-    .addItem ('Export Tagged Notes','showExportTaggedNotesDialog')
+    .addItem('Export Tagged Notes', 'showExportTaggedNotesDialog')
     .addItem('Settings', 'showSettings')
     .addToUi();
   
