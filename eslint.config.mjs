@@ -41,6 +41,20 @@ export default defineConfig([
       "no-unused-vars": "off",
       "no-useless-escape": "off"  
     }
+  },
+  {     //stop throwing errors for "describe" and "it" in test files
+  files: ["test/**/*.js"],
+  languageOptions: {
+    globals: {
+      describe: "readonly",
+      it: "readonly",
+      before: "readonly",
+      after: "readonly",
+      beforeEach: "readonly",
+      afterEach: "readonly"
+    }
   }
+}
+
   
 ]);
