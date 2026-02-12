@@ -6,7 +6,7 @@
 // Install menu when document opens
 function onOpen() {
   DocumentApp.getUi()
-    .createMenu('Tag Manager')
+    .createMenu('PaperTrail')
     .addItem('Open Tag Sidebar', 'showSidebar')
     .addItem('Refresh Tags', 'refreshAllTags')
     .addItem('Enable Hashtag Autocomplete', 'enableHashtagAutocomplete')
@@ -931,6 +931,7 @@ function clearAllData() {
     ui.alert('Success', 'All tag data has been cleared.', ui.ButtonSet.OK);
   }
 }
+<<<<<<< HEAD
 function updateProject(projectId, updates) {
   if (!projectId) throw new Error('Project ID is required.');
   updates =updates || {};
@@ -1001,3 +1002,4 @@ function ok_(extra) {
   extra.updatedAt = new Date().toISOString();
   return extra;
 }
+

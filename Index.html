@@ -148,7 +148,7 @@
 </head>
 <body>
   <div class="header">
-    <div class="header-title">🏷️ Paper Trail</div>
+    <div class="header-title">🏷️ PaperTrail</div>
     <div class="search-container">
       <input type="text" class="search-input" id="searchInput" placeholder="Search tags...">
       <div class="autocomplete-list" id="autocompleteList"></div>
@@ -258,6 +258,10 @@
     let currentTag = null;
     let expandedProjects = [];
     let expandedTags = {};
+    let refreshTimer=null;
+    let isRefreshing=false;
+    let lastSeenUpdated='';
+    let autocompleteInitialized=false
 
     const colors = [
       { value: '#1A73E8', name: 'Blue' },
@@ -273,6 +277,7 @@
       console.log('Loading tags...');
       loadTags();
       setupKeyboardShortcuts();
+      startAutoRefresh();
     };
 
     // Setup keyboard shortcuts
@@ -513,18 +518,32 @@
     // ===== END AUTOCOMPLETE FEATURE =====
 
     function loadTags() {
+      if (isRefreshing) return;
+      isRefreshing=true;
       console.log('Calling getAllTags...');
       google.script.run
         .withSuccessHandler(function(data) {
           console.log('Success! Received data:', data);
+          if (data && data.lastUpdated) lastSeenUpdated = data.lastUpdated;
           renderTags(data);
+          isRefreshing=false;
         })
         .withFailureHandler(function(error) {
           console.error('Error:', error);
           showError(error);
+          isRefreshing=false;
         })
         .getAllTags();
     }
+    function startAutoRefresh() {
+      if (refreshTimer) clearInterval(refreshTimer);
+
+      refreshTimer = setInterval(function () {
+        if (isRefreshing) return;
+        loadTags();
+      }, 2000);
+    }
+
 
     function renderTags(data) {
       console.log('Rendering tags:', data);
@@ -532,7 +551,11 @@
       const content = document.getElementById('content');
       
       // Initialize autocomplete with loaded data
-      initializeAutocomplete();
+      if (!autocompleteInitialized){
+        initializeAutocomplete();
+        autocompleteInitialized=true;
+      }
+      
       
       if (currentFilter === 'projects') {
         renderProjectsView(data.projects);
