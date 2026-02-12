@@ -223,6 +223,35 @@
     </div>
   </div>
 
+    <!--folder edit-->
+  <div class="modal-overlay" id="projectModal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">Edit Project</div>
+        <button onclick="closeProjectModal()" style="border:none;background:none;cursor:pointer;font-size:20px;">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Project Name *</label>
+          <input type="text" class="form-input" id="projectNameInput" maxlength="50" style="padding-left:12px;">
+          <div style="text-align:right;font-size:11px;color:#5f6368;margin-top:4px;">
+            <span id="projectNameCount">0/50</span>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Color</label>
+          <div class="color-grid" id="projectColorGrid"></div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeProjectModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveProjectChanges()">Save</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     let currentFilter = 'projects';
     let allTags = null;
@@ -699,38 +728,52 @@
     }
 
     function renderProjectsView(projects) {
-      const content = document.getElementById('content');
-      
-      if (!projects || projects.length === 0 || !projects[0].tags || projects[0].tags.length === 0) {
-        content.innerHTML = `
-          <div class="empty-state">
-            <div style="font-size:48px;margin-bottom:12px;">🏷️</div>
-            <div class="empty-title">No Tags Found</div>
-            <p style="font-size:12px;color:#80868b;margin-top:8px;">Start typing #tagname in your document</p>
-            <button onclick="loadTags()" style="margin-top:16px;padding:8px 16px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer;">Refresh Tags</button>
-          </div>
-        `;
-        return;
-      }
+  const content =document.getElementById('content');
 
-      let html = '';
-      projects.forEach(project => {
-        const isExpanded = expandedProjects.includes(project.name);
-        const totalCount = project.tags ? project.tags.reduce((sum, tag) => sum + tag.count, 0) : 0;
-        
-        html += `
-          <div class="project">
-            <div class="project-header" onclick="toggleProject('${project.name}')">
-              <span style="font-size:16px;">${isExpanded ? '📂' : '📁'}</span>
-              <div class="project-name">${project.name} <span class="tag-count">${totalCount}</span></div>
-            </div>
-            ${isExpanded && project.tags ? renderProjectTags(project) : ''}
-          </div>
-        `;
-      });
+  if (!projects || projects.length=== 0 || !projects[0].tags || projects[0].tags.length=== 0) {
+    content.innerHTML= `
+      <div class="empty-state">
+        <div style="font-size:48px;margin-bottom:12px;">🏷️</div>
+        <div class="empty-title">No Tags Found</div>
+        <p style="font-size:12px;color:#80868b;margin-top:8px;">Start typing #tagname in your document</p>
+        <button onclick="loadTags()" style="margin-top:16px;padding:8px 16px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer;">Refresh Tags</button>
+      </div>
+    `;
+    return;
+  }
 
-      content.innerHTML = html;
-    }
+  let html ='';
+  projects.forEach(project =>{
+    const isExpanded =expandedProjects.includes(project.id);
+    const totalCount= project.tags ? project.tags.reduce((sum, tag) => sum + tag.count, 0) : 0;
+
+    html += `
+      <div class="project">
+        <div class="project-header" onclick="toggleProject('${project.id}')">
+          <span style="font-size:16px;">${isExpanded ? '📂' : '📁'}</span>
+
+          <div class="project-name">
+            <span style="display:inline-flex;align-items:center;gap:8px;">
+              <span style="width:10px;height:10px;border-radius:50%;background:${project.color || '#1A73E8'};display:inline-block;"></span>
+              ${project.name}
+            </span>
+            <span class="tag-count">${totalCount}</span>
+          </div>
+
+          <button class="tag-action-btn"
+                  onclick="openProjectModal('${project.id}', event)"
+                  title="Edit project">
+            ⚙️
+          </button>
+        </div>
+
+        ${isExpanded && project.tags ? renderProjectTags(project) : ''}
+      </div>
+    `;
+  });
+
+  content.innerHTML = html;
+}
 
     function buildTagTree(tags) {
       const tree = {};
@@ -845,12 +888,12 @@
       renderTags(allTags);
     }
 
-    function toggleProject(projectName) {
-      const index = expandedProjects.indexOf(projectName);
+    function toggleProject(projectId) {
+      const index = expandedProjects.indexOf(projectId);
       if (index > -1) {
         expandedProjects.splice(index, 1);
       } else {
-        expandedProjects.push(projectName);
+        expandedProjects.push(projectId);
       }
       renderTags(allTags);
     }
@@ -972,6 +1015,80 @@
     document.getElementById('editTagNameInput').addEventListener('input', function(e) {
       document.getElementById('editNameCount').textContent = e.target.value.length + '/50';
     });
+    let currentProject = null;
+
+function openProjectModal(projectId, event) {
+  if (event) event.stopPropagation();
+  const project =allTags && allTags.projects ? allTags.projects.find(p => p.id === projectId) : null;
+  if (!project) return;
+  currentProject ={ id: projectId };
+  const input =document.getElementById('projectNameInput');
+  input.value= project.name || '';
+  document.getElementById('projectNameCount').textContent =input.value.length + '/50';
+  const grid = document.getElementById('projectColorGrid');
+  const currentColor = project.color || '#1A73E8';
+
+  grid.innerHTML = colors.map(c => `
+    <div class="color-option ${normalizeColor(currentColor) === normalizeColor(c.value) ? 'selected' : ''}"
+         style="background-color:${c.value}"
+         onclick="selectProjectColor('${c.value}', event)"></div>
+  `).join('');
+
+  document.getElementById('projectModal').classList.add('show');
+}
+
+function closeProjectModal() {
+  document.getElementById('projectModal').classList.remove('show');
+  currentProject =null;
+}
+
+function selectProjectColor(color, event) {
+  document.querySelectorAll('#projectColorGrid .color-option')
+    .forEach(opt => opt.classList.remove('selected'));
+  if (event && event.target) event.target.classList.add('selected');
+}
+
+function saveProjectChanges() {
+  if (!currentProject) return;
+
+  const name = document.getElementById('projectNameInput').value.trim();
+  if (!name) { alert('Project name is required'); return; }
+
+  const selected = document.querySelector('#projectColorGrid .color-option.selected');
+  const color = selected ? rgbToHex(window.getComputedStyle(selected).backgroundColor) : null;
+
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (result && result.success) {
+        closeProjectModal();
+        setTimeout(loadTags, 300);
+      } else {
+        alert((result && result.error) ? result.error : 'Error updating project.');
+      }
+    })
+    .withFailureHandler(function(err) {
+      alert(err && err.message ? err.message : String(err));
+    })
+    .updateProject(currentProject.id, { name: name, color: color });
+}
+function normalizeColor(c) {    //helpers
+  return (c || '').toLowerCase().replace(/\s+/g, '');
+}
+function rgbToHex(rgb) {     //rgb yay!
+  if (!rgb) return null;
+  if (rgb.startsWith('#')) return rgb;
+  const m =rgb.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+  if (!m) return rgb;
+  const r= parseInt(m[1], 10).toString(16).padStart(2, '0');
+  const g =parseInt(m[2], 10).toString(16).padStart(2, '0');
+  const b = parseInt(m[3], 10).toString(16).padStart(2, '0');
+  return ('#' + r + g + b).toUpperCase();
+}
+
+document.getElementById('projectNameInput').addEventListener('input', function(e) {
+  document.getElementById('projectNameCount').textContent = e.target.value.length + '/50';
+});
+
   </script>
 </body>
 </html>

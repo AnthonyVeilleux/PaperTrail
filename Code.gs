@@ -931,3 +931,99 @@ function clearAllData() {
     ui.alert('Success', 'All tag data has been cleared.', ui.ButtonSet.OK);
   }
 }
+function updateProject(projectId, updates) {
+  if (!projectId) throw new Error('Project ID is required.');
+  updates =updates || {};
+
+  var projects =getProjects_();
+
+  var idx =projects.findIndex(function(p) { return p.id ===projectId; });
+  if (idx < 0) throw new Error('Project not found.');
+
+  if (updates.name !==undefined) {    // sanitize
+    var name =String(updates.name).trim();
+    if (!name) throw new Error('Project name cannot be empty.');
+    projects[idx].name =name;
+  }
+
+  if (updates.color !==undefined) {
+    var color =String(updates.color).trim();     //accept either hex or rgb coming from the browser
+    projects[idx].color =color;
+  }
+  projects[idx].lastActivity ='Just now';
+  saveProjects_(projects);
+  touchTagsUpdated_();
+  return ok_({ project: projects[idx] });
+}
+
+function createProject(data) {       //futuire scalability
+  data = data || {};    //prevent undefeined errord
+  var projects = getProjects_();  //load exisitng porject from storage
+
+  var id ='project-' + Utilities.getUuid();      //unique id for proejct
+  var name =String(data.name || 'New Project').trim() || 'New Project';     //santize
+  var color =String(data.color || '#1A73E8');
+
+  var p ={
+    id: id,
+    name: name,
+    color: color,
+    created: new Date().toISOString().split('T')[0],
+    lastActivity: 'Just now',
+    tags: []
+  };
+
+  projects.push(p);
+  saveProjects_(projects);
+  touchTagsUpdated_();
+  return ok_({ project: p });
+}
+function createProject(data) {
+  data =data || {};
+  var projects =getProjects_();
+
+  var id ='project-' + Utilities.getUuid();
+  var name= String(data.name || 'New Project').trim() || 'New Project';
+  var color =String(data.color || '#1A73E8');
+
+  var p ={
+    id: id,
+    name: name,
+    color: color,
+    created: new Date().toISOString().split('T')[0],
+    lastActivity: 'Just now',
+    tags: []
+  };
+
+  projects.push(p);
+  saveProjects_(projects);
+  touchTagsUpdated_();
+  return ok_({ project: p });
+}
+
+function getProjects_() {    // get projets from Document Properties
+  var properties = PropertiesService.getDocumentProperties();
+  var data = properties.getProperty('projects');
+  return data ? JSON.parse(data) : getDefaultProjects();
+}
+
+function saveProjects_(projects) {   //save projects to Document Properties
+  var properties =PropertiesService.getDocumentProperties();
+  properties.setProperty('projects', JSON.stringify(projects));
+}
+
+function touchTagsUpdated_() {    //update  doc level "last updated" timestamp for tags/projects so sidebar can autorefresh based on changes
+  try {
+    PropertiesService.getDocumentProperties()
+      .setProperty('tags_last_updated', new Date().toISOString());
+  } catch (e) {
+    Logger.log('Error setting tags_last_updated: ' + e);
+  }
+}
+function ok_(extra) {
+  extra =extra || {};
+  extra.success =true;
+  extra.refresh= true;
+  extra.updatedAt =new Date().toISOString();
+  return extra;
+}
