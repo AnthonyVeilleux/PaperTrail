@@ -6,8 +6,9 @@ function showExportTaggedNotesDialog() {
 }
 
 function getTagNamesForExport() {
-  var tagCounts =extractHashtagsFromDocument(); // defined in Code.gs
-  return Object.keys(tagCounts).sort();
+  var extracted =extractHashtagsFromDocument(); 
+  var tagCounts= (extracted && extracted.tags) ? extracted.tags : extracted;
+  return Object.keys(tagCounts || {}).sort();
 }
 
 /**
@@ -96,14 +97,7 @@ function exportContentAsDoc_(title, content) {     //google doc export plain tex
   doc.getBody().setText(content);
   return { url: doc.getUrl(), id: doc.getId(), type: 'DOC' };
 }
-/**
- * PDF export (styled) - rendered from blocks
- * This avoids:
- * - duplicated "1." lines
- * - mis-detecting entries
- * - formatting inconsistencies
- */
-function exportBlocksAsPdf_(title, tagName, blocks) {
+function exportBlocksAsPdf_(title, tagName, blocks) {   //pdf export style 
   var tempDoc =DocumentApp.create(title + ' (temp)');
   var body= tempDoc.getBody();
   body.clear();
@@ -213,4 +207,4 @@ function debugExportRuntime() {
 
   Logger.log('debugExportRuntime: ' + JSON.stringify(result));
   return result;
-} 
+}
