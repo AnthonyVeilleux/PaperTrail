@@ -20,9 +20,8 @@
       <option value="DOC">Google Doc</option>
       <option value="PDF">PDF</option>
     </select>
-    <button onclick="exportNotes()">Export</button>
-
     <div class="status" id="status"></div>
+    <button id='exportButton' onclick="exportNotes()">Export</button>
 
     <script>
       function setStatus(msg){//update statuys area in dialog
@@ -49,11 +48,12 @@
       function exportNotes() {//export process for selected option
         const tag =document.getElementById('tag').value;
         const format= document.getElementById('format').value;
+        document.getElementById('exportButton').style.visibility = 'hidden';
         if (!tag) {
           setStatus('Select a tag first.');
           return;
         }
-        setStatus('Exporting');
+        setStatus('Exporting...');
         google.script.run
           .withSuccessHandler(function(result){
             setStatus('Done! <a href="' +result.url +'" target="_blank">Open exported file</a>');
