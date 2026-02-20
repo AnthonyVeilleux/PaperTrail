@@ -59,6 +59,11 @@
     .nested-children .tag-item { background: rgba(248, 249, 250, 0.5); }
     .nested-children .nested-children .tag-item { background: rgba(241, 243, 244, 0.6); }
     .nested-children .nested-children .nested-children .tag-item { background: rgba(232, 234, 237, 0.4); }
+
+    .occurrences-list { margin-left: 28px; margin-top: 6px; border-left: 2px dashed #dadce0; padding-left: 10px; }
+    .occurrence-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 12px; color: #202124; }
+    .occurrence-item:hover { background: #f8f9fa; }
+    .occurrence-snippet { font-size: 11px; color: #5f6368; }
     
     
     
@@ -167,6 +172,8 @@
     let currentTag = null;
     let expandedProjects = [];
     let expandedTags = {};
+    let expandedOccurrences = {};
+    let occurrenceDetails = {};
     let refreshTimer=null;
     let isRefreshing=false;
     let lastSeenUpdated='';
@@ -433,8 +440,11 @@
       google.script.run
         .withSuccessHandler(function(data) {
           console.log('Success! Received data:', data);
-          if (data && data.lastUpdated) lastSeenUpdated = data.lastUpdated;
+          if (data && data.lastUpdated && data.lastUpdated !== lastSeenUpdated) {
+            lastSeenUpdated = data.lastUpdated;
+          }
           renderTags(data);
+          refreshExpandedOccurrences();
           isRefreshing=false;
         })
         .withFailureHandler(function(error) {
@@ -551,7 +561,7 @@
           tags.forEach(tag => {
             const tagColor = tag.color || '#80868b';
             html += `
-              <div class="tag-item">
+              <div class="tag-item" onclick="handleTagClick('${tag.name}', event, ${tag.count})">
                 <div class="tag-main">
                   <div class="tag-dot" style="background-color:${tagColor}; flex-shrink: 0;"></div>
                   <span class="tag-name">#${tag.name}</span>
@@ -559,6 +569,7 @@
                   <span style="font-size:11px;color:#5f6368;">in this document</span>
                 </div>
               </div>
+              ${tag.count > 1 && expandedOccurrences[tag.name] ? renderOccurrencesList(tag.name, tag.count, tagColor) : ''}
             `;
           });
           html += '</div>';
@@ -620,7 +631,7 @@
       allTagsList.forEach(tag => {
         const tagColor = tag.color || '#80868b';
         html += `
-          <div class="tag-item" style="padding: 10px 12px; border-radius: 8px; margin-bottom: 6px; background: #f8f9fa;">
+          <div class="tag-item" style="padding: 10px 12px; border-radius: 8px; margin-bottom: 6px; background: #f8f9fa;" onclick="handleTagClick('${tag.name}', event, ${tag.totalCount})">
             <div class="tag-main">
               <div class="tag-dot" style="background-color:${tagColor}; flex-shrink: 0;"></div>
               <div style="flex: 1;">
@@ -630,6 +641,7 @@
               <span class="tag-count-badge">${tag.totalCount}</span>
             </div>
           </div>
+          ${tag.totalCount > 1 && expandedOccurrences[tag.name] ? renderOccurrencesList(tag.name, tag.totalCount, tagColor) : ''}
         `;
       });
       
@@ -745,8 +757,11 @@
         return html;
       }
       
+      const occurrenceCount = tagCount || getBookmarkCount(fullPath);
+      const showOccurrences = occurrenceCount > 1 && expandedOccurrences[fullPath];
+
       let html = `
-        <div class="tag-item ${hasChildren ? 'parent-tag' : ''}" data-depth="${depth}">
+        <div class="tag-item ${hasChildren ? 'parent-tag' : ''}" data-depth="${depth}" onclick="handleTagClick('${fullPath}', event, ${occurrenceCount})">
           <div class="tag-main">
             ${shouldShowExpandButton ? `<span class="tag-expand-icon ${isExpanded ? 'expanded' : ''}" onclick="toggleNestedTag('${fullPath}', event)" title="Toggle children">▶</span>` : '<span style="width:20px;"></span>'}
             <div class="tag-dot" style="background-color:${tagColor}; flex-shrink: 0;"></div>
@@ -755,6 +770,10 @@
           </div>
         </div>
       `;
+
+      if (showOccurrences) {
+        html += renderOccurrencesList(fullPath, occurrenceCount, tagColor);
+      }
       
       // Render children if expanded
       if (isExpanded && hasChildren) {
@@ -825,6 +844,106 @@
           <button onclick="loadTags()" style="margin-top:16px;padding:8px 16px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer;">Try Again</button>
         </div>
       `;
+    }
+
+    function renderOccurrencesList(tagName, occurrenceCount, tagColor) {
+      let html = '<div class="occurrences-list">';
+      const details = occurrenceDetails[tagName];
+      const isLoading = details && details.loading;
+      const items = details && details.items ? details.items : null;
+
+      if (items && items.length) {
+        items.forEach(function(item, i) {
+          let snippetText = item.snippet ? item.snippet : '...';
+          if (snippetText.length > 30) {
+            snippetText = snippetText.slice(0, 30).trimEnd() + '...';
+          }
+          html += `
+            <div class="occurrence-item" onclick="jumpToTag('${tagName}', ${i}); event.stopPropagation();">
+              <div class="tag-dot" style="background-color:${tagColor}; flex-shrink: 0;"></div>
+              <div class="tag-name">${snippetText}</div>
+            </div>
+          `;
+        });
+      } else if (isLoading) {
+        html += `
+          <div class="occurrence-item">
+            <div class="tag-dot" style="background-color:${tagColor}; flex-shrink: 0;"></div>
+            <span class="tag-name">Loading occurrences...</span>
+          </div>
+        `;
+      } else {
+        for (let i = 0; i < occurrenceCount; i++) {
+          const label = 'Occurrence ' + (i + 1);
+          html += `
+            <div class="occurrence-item" onclick="jumpToTag('${tagName}', ${i}); event.stopPropagation();">
+              <div class="tag-dot" style="background-color:${tagColor}; flex-shrink: 0;"></div>
+              <span class="tag-name">${label}</span>
+            </div>
+          `;
+        }
+      }
+      html += '</div>';
+      return html;
+    }
+
+    function refreshExpandedOccurrences() {
+      const expandedTags = Object.keys(expandedOccurrences || {});
+      expandedTags.forEach(function(tagName) {
+        if (expandedOccurrences[tagName]) {
+          fetchOccurrenceDetails(tagName);
+        }
+      });
+    }
+
+    function getBookmarkCount(tagName) {
+      if (!allTags || !allTags.bookmarkCounts) return 0;
+      return allTags.bookmarkCounts[tagName] || 0;
+    }
+
+    function handleTagClick(tagName, event, occurrenceCount) {
+      if (event) event.stopPropagation();
+      const count = typeof occurrenceCount === 'number' ? occurrenceCount : getBookmarkCount(tagName);
+      if (count > 1) {
+        expandedOccurrences[tagName] = !expandedOccurrences[tagName];
+        if (expandedOccurrences[tagName]) {
+          fetchOccurrenceDetails(tagName);
+        }
+        renderTags(allTags);
+        return;
+      }
+      jumpToTag(tagName, 0);
+    }
+
+    function fetchOccurrenceDetails(tagName) {
+      if (occurrenceDetails[tagName] && occurrenceDetails[tagName].loading) {
+        return;
+      }
+      const existingItems = occurrenceDetails[tagName] && occurrenceDetails[tagName].items ? occurrenceDetails[tagName].items : null;
+      occurrenceDetails[tagName] = { loading: true, items: existingItems };
+      google.script.run
+        .withSuccessHandler(function(result) {
+          const occurrences = result && result.occurrences ? result.occurrences : [];
+          occurrenceDetails[tagName] = { loading: false, items: occurrences };
+          renderTags(allTags);
+        })
+        .withFailureHandler(function(error) {
+          console.error('Error loading occurrences:', error);
+          occurrenceDetails[tagName] = { loading: false, items: [] };
+          renderTags(allTags);
+        })
+        .getTagOccurrences(tagName, 80);
+    }
+
+    function jumpToTag(tagName, occurrenceIndex) {
+      google.script.run
+        .withSuccessHandler(function() {
+          console.log('Navigated to tag:', tagName);
+        })
+        .withFailureHandler(function(error) {
+          console.error('Error navigating to tag:', error);
+        })
+        .jumpToTagBookmark(tagName, occurrenceIndex || 0);
     }
 
   </script>

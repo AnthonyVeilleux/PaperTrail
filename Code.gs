@@ -11,6 +11,7 @@ function onOpen() {
     .addItem('Refresh Tags', 'refreshAllTags')
     .addItem('Enable Hashtag Autocomplete', 'enableHashtagAutocomplete')
     .addSeparator()
+    .addItem('Export Tagged Notes', 'showExportTaggedNotesDialog')
     .addItem('Settings', 'showSettings')
     .addToUi();
   
@@ -48,6 +49,9 @@ function extractHashtagsFromDocument() {
     var doc = DocumentApp.getActiveDocument();
     var body = doc.getBody();
     var text = body.getText();
+    var textSignature = Utilities.base64Encode(
+      Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, text)
+    );
     
     Logger.log('Document text length: ' + text.length);
     
@@ -64,7 +68,7 @@ function extractHashtagsFromDocument() {
     Logger.log('Found ' + matches.length + ' hashtags');
     
     if (matches.length === 0) {
-      return {};
+      return { tags: {}, hierarchy: {}, textSignature: textSignature };
     }
     
     // Count occurrences and organize by hierarchy
@@ -96,11 +100,12 @@ function extractHashtagsFromDocument() {
     
     return {
       tags: tagCounts,
-      hierarchy: hierarchyMap
+      hierarchy: hierarchyMap,
+      textSignature: textSignature
     };
   } catch (e) {
     Logger.log('Error extracting hashtags: ' + e.toString());
-    return { tags: {}, hierarchy: {} };
+    return { tags: {}, hierarchy: {}, textSignature: '' };
   }
 }
 
@@ -118,7 +123,24 @@ function getAllTags() {
     // Extract current hashtags from document
     var documentTags = extractHashtagsFromDocument();
     Logger.log('Document tags: ' + JSON.stringify(documentTags));
+
+    try {
+      ensureTagBookmarks(documentTags.tags || {});
+    } catch (e) {
+      Logger.log('Error ensuring tag bookmarks: ' + e.toString());
+    }
     
+    var bookmarkCounts = {};
+    try {
+      var bookmarkData = properties.getProperty('tag_bookmarks');
+      var bookmarkMap = bookmarkData ? JSON.parse(bookmarkData) : {};
+      Object.keys(bookmarkMap).forEach(function(tagName) {
+        bookmarkCounts[tagName] = (bookmarkMap[tagName] || []).length;
+      });
+    } catch (e) {
+      Logger.log('Error reading tag bookmarks: ' + e.toString());
+    }
+
     // Get or create projects
     var projects = projectsData ? JSON.parse(projectsData) : getDefaultProjects();
     var globalTags = globalTagsData ? JSON.parse(globalTagsData) : getDefaultGlobalTags();
@@ -186,7 +208,8 @@ function getAllTags() {
       projects: projects,
       globalTags: globalTags,
       documentTags: documentTags,
-      hierarchy: documentTags.hierarchy || {}
+      hierarchy: documentTags.hierarchy || {},
+      bookmarkCounts: bookmarkCounts
     };
     
     // Establish nested tag relationships
@@ -526,6 +549,23 @@ function escapeRegex(string) {
 }
 
 /**
+ * Escape user tag names for use in regex patterns
+ */
+function escapeTagForRegex(tagName) {
+  return escapeRegex(tagName);
+}
+
+/**
+ * Check if a tag match ends at a valid boundary
+ */
+function isTagBoundary(text, endIndex) {
+  if (endIndex + 1 >= text.length) {
+    return true;
+  }
+  return !(/[a-zA-Z0-9_.-]/.test(text.charAt(endIndex + 1)));
+}
+
+/**
  * Rename tag throughout document
  */
 function renameTagInDocument(oldName, newName) {
@@ -673,6 +713,201 @@ function highlightTag(tagName) {
 }
 
 /**
+ * Create and refresh bookmarks for tag occurrences
+ */
+/**
+ * Build or refresh bookmarks for all tags in the document
+ */
+function buildTagBookmarks(documentTags) {
+  var doc = DocumentApp.getActiveDocument();
+  var body = doc.getBody();
+  var properties = PropertiesService.getDocumentProperties();
+
+  var tags = documentTags || extractHashtagsFromDocument().tags || {};
+  var tagNames = Object.keys(tags);
+  var bookmarksByTag = {};
+
+  // Remove previously created tag bookmarks
+  try {
+    var existing = properties.getProperty('tag_bookmarks');
+    if (existing) {
+      var existingMap = JSON.parse(existing);
+      Object.keys(existingMap).forEach(function(tagName) {
+        existingMap[tagName].forEach(function(bookmarkId) {
+          var bookmark = doc.getBookmark(bookmarkId);
+          if (bookmark) {
+            bookmark.remove();
+          }
+        });
+      });
+    }
+  } catch (e) {
+    Logger.log('Error removing existing tag bookmarks: ' + e.toString());
+  }
+
+  // Create new bookmarks for each tag occurrence
+  tagNames.forEach(function(tagName) {
+    var pattern = '#' + escapeTagForRegex(tagName);
+    var searchResult = body.findText(pattern);
+
+    while (searchResult !== null) {
+      var element = searchResult.getElement();
+      if (element.getType() === DocumentApp.ElementType.TEXT) {
+        var textElement = element.asText();
+        var text = textElement.getText();
+        if (isTagBoundary(text, searchResult.getEndOffsetInclusive())) {
+          var position = doc.newPosition(textElement, searchResult.getStartOffset());
+          var bookmark = doc.addBookmark(position);
+          if (bookmark) {
+            if (!bookmarksByTag[tagName]) {
+              bookmarksByTag[tagName] = [];
+            }
+            bookmarksByTag[tagName].push(bookmark.getId());
+          }
+        }
+      }
+      searchResult = body.findText(pattern, searchResult);
+    }
+  });
+
+  properties.setProperty('tag_bookmarks', JSON.stringify(bookmarksByTag));
+  properties.setProperty('tag_bookmarks_last_updated', new Date().toISOString());
+  properties.setProperty('tag_bookmarks_hash', JSON.stringify(tags));
+
+  return bookmarksByTag;
+}
+
+/**
+ * Ensure bookmarks are up to date with the current document tags
+ */
+function ensureTagBookmarks(documentTags) {
+  var properties = PropertiesService.getDocumentProperties();
+  var tags = documentTags || extractHashtagsFromDocument().tags || {};
+  var currentHash = JSON.stringify(tags);
+  var savedHash = properties.getProperty('tag_bookmarks_hash');
+  var existing = properties.getProperty('tag_bookmarks');
+
+  if (existing && savedHash === currentHash) {
+    return;
+  }
+
+  buildTagBookmarks(tags);
+}
+
+/**
+ * Jump the cursor to a bookmark for the given tag
+ */
+function jumpToTagBookmark(tagName, occurrenceIndex) {
+  try {
+    var doc = DocumentApp.getActiveDocument();
+    var properties = PropertiesService.getDocumentProperties();
+    var bookmarksData = properties.getProperty('tag_bookmarks');
+
+    if (!bookmarksData) {
+      ensureTagBookmarks();
+      bookmarksData = properties.getProperty('tag_bookmarks');
+    }
+
+    var map = bookmarksData ? JSON.parse(bookmarksData) : {};
+    var list = map[tagName] || [];
+
+    if (!list.length) {
+      ensureTagBookmarks();
+      map = JSON.parse(properties.getProperty('tag_bookmarks') || '{}');
+      list = map[tagName] || [];
+    }
+
+    if (!list.length) {
+      return { success: false, error: 'No bookmarks found for tag.' };
+    }
+
+    var index = typeof occurrenceIndex === 'number' ? occurrenceIndex : 0;
+    if (index < 0 || index >= list.length) {
+      index = 0;
+    }
+
+    var bookmark = doc.getBookmark(list[index]);
+    if (!bookmark) {
+      return { success: false, error: 'Bookmark not found.' };
+    }
+
+    doc.setCursor(bookmark.getPosition());
+    return { success: true, count: list.length, index: index };
+  } catch (e) {
+    Logger.log('Error jumping to tag bookmark: ' + e.toString());
+    return { success: false, error: e.toString() };
+  }
+}
+
+/**
+ * Get tag occurrence snippets in the document
+ */
+function getTagOccurrences(tagName, maxChars) {
+  try {
+    var doc = DocumentApp.getActiveDocument();
+    var body = doc.getBody();
+    var pattern = '#' + escapeTagForRegex(tagName);
+    var searchResult = body.findText(pattern);
+    var snippets = [];
+    var limit = typeof maxChars === 'number' ? maxChars : 80;
+
+    while (searchResult !== null) {
+      var element = searchResult.getElement();
+      if (element.getType() === DocumentApp.ElementType.TEXT) {
+        var textElement = element.asText();
+        var text = textElement.getText();
+        if (isTagBoundary(text, searchResult.getEndOffsetInclusive())) {
+          var tagEnd = searchResult.getEndOffsetInclusive();
+          var nextLineBreak = text.indexOf('\n', tagEnd + 1);
+          var snippet = '';
+
+          if (nextLineBreak !== -1) {
+            var start = nextLineBreak + 1;
+            var end = Math.min(start + limit, text.length);
+            var rawSnippet = text.substring(start, end);
+            snippet = rawSnippet.replace(/\s+/g, ' ').trim();
+          }
+
+          if (!snippet) {
+            var parent = textElement.getParent();
+            if (parent && parent.getType && parent.getType() === DocumentApp.ElementType.PARAGRAPH) {
+              var body = parent.getParent();
+              if (body && body.getChildIndex) {
+                var parentIndex = body.getChildIndex(parent);
+                for (var i = parentIndex + 1; i < body.getNumChildren(); i++) {
+                  var sibling = body.getChild(i);
+                  if (sibling.getType && sibling.getType() === DocumentApp.ElementType.PARAGRAPH) {
+                    var siblingText = sibling.asParagraph().getText().replace(/\s+/g, ' ').trim();
+                    if (siblingText) {
+                      snippet = siblingText.substring(0, limit);
+                      break;
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          if (!snippet) {
+            snippet = '(no text on next line)';
+          }
+          snippets.push({
+            index: snippets.length,
+            snippet: snippet
+          });
+        }
+      }
+      searchResult = body.findText(pattern, searchResult);
+    }
+
+    return { success: true, occurrences: snippets };
+  } catch (e) {
+    Logger.log('Error getting tag occurrences: ' + e.toString());
+    return { success: false, error: e.toString(), occurrences: [] };
+  }
+}
+
+/**
  * Get random color for new tags
  */
 function getRandomColor() {
@@ -689,7 +924,7 @@ function refreshAllTags() {
     
     // Extract tags
     var tags = extractHashtagsFromDocument();
-    var count = Object.keys(tags).length;
+    var count = Object.keys(tags.tags || {}).length;
     
     if (count === 0) {
       ui.alert('No Tags Found', 'No hashtags found in the document. Start typing #tagname to create tags!', ui.ButtonSet.OK);
@@ -732,6 +967,82 @@ function getDocumentInfo() {
       url: ''
     };
   }
+}
+
+/**
+ * Create a bookmark at the current cursor position
+ */
+function createBookmarkAtCursor() {
+  try {
+    var doc = DocumentApp.getActiveDocument();
+    var cursor = doc.getCursor();
+
+    if (!cursor) {
+      return { success: false, error: 'No cursor position found.' };
+    }
+
+    var surroundingText = cursor.getSurroundingText();
+    var surroundingOffset = cursor.getSurroundingTextOffset();
+
+    if (!surroundingText || surroundingOffset === null) {
+      return { success: false, error: 'Unable to resolve cursor position.' };
+    }
+
+    var position = doc.newPosition(surroundingText, surroundingOffset);
+    var bookmark = doc.addBookmark(position);
+    var bookmarkId = bookmark.getId();
+
+    return {
+      success: true,
+      id: bookmarkId,
+      url: doc.getUrl() + '#bookmark=' + bookmarkId
+    };
+  } catch (e) {
+    Logger.log('Error creating bookmark: ' + e.toString());
+    return { success: false, error: e.toString() };
+  }
+}
+
+/**
+ * Create a bookmark for each new tag (first occurrence only)
+ */
+function createBookmarksForNewTags(tagCounts) {
+  var doc = DocumentApp.getActiveDocument();
+  var body = doc.getBody();
+  var properties = PropertiesService.getDocumentProperties();
+  var data = properties.getProperty('tag_first_bookmarks');
+  var bookmarkMap = data ? JSON.parse(data) : {};
+
+  Object.keys(tagCounts).forEach(function(tagName) {
+    var existingId = bookmarkMap[tagName];
+    if (existingId) {
+      try {
+        if (doc.getBookmark(existingId)) {
+          return;
+        }
+      } catch (e) {
+        Logger.log('Error reading bookmark ' + existingId + ': ' + e.toString());
+      }
+    }
+
+    var pattern = '#' + escapeRegex(tagName) + '(?![a-zA-Z0-9_.-])';
+    var searchResult = body.findText(pattern);
+    if (!searchResult) {
+      return;
+    }
+
+    var element = searchResult.getElement();
+    if (element.getType() !== DocumentApp.ElementType.TEXT) {
+      return;
+    }
+
+    var textElement = element.asText();
+    var position = doc.newPosition(textElement, searchResult.getStartOffset());
+    var bookmark = doc.addBookmark(position);
+    bookmarkMap[tagName] = bookmark.getId();
+  });
+
+  properties.setProperty('tag_first_bookmarks', JSON.stringify(bookmarkMap));
 }
 
 /**
@@ -939,4 +1250,3 @@ function touchTagsUpdated_() {
     Logger.log('Error setting tags_last_updated: '+ e);
   }
 }
-
