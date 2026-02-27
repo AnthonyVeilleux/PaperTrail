@@ -1,0 +1,16 @@
+# Ignore node tooling and tests (not Apps Script)
+new-project/**
+node_modules/**
+.github/**
+tests/**
+playwright.config.js
+
+# Ignore backup Apps Script files
+Code_Backup.gs
+
+# Ignore local/irrelevant files
+package.json
+package-lock.json
+README.md
+Documents/**
+*.md

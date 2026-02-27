@@ -11,6 +11,7 @@ function onOpen() {
     .addItem('Refresh Tags', 'refreshAllTags')
     .addItem('Enable Hashtag Autocomplete', 'enableHashtagAutocomplete')
     .addSeparator()
+    .addItem('Export Tagged Notes', 'showExportTaggedNotesDialog')
     .addItem('Settings', 'showSettings')
     .addToUi();
   
@@ -533,8 +534,8 @@ function renameTagInDocument(oldName, newName) {
     var doc = DocumentApp.getActiveDocument();
     var body = doc.getBody();
     
-    // Create regex pattern - escape special regex characters
-    var pattern = '#' + escapeRegex(oldName) + '(?![a-zA-Z0-9_.-])';
+    // Create regex pattern for the old tag
+    var pattern = '#' + tagName + '\\b';
     
     // Replace all occurrences
     var searchResult = body.findText(pattern);
@@ -573,8 +574,8 @@ function deleteTag(tagName) {
     var doc = DocumentApp.getActiveDocument();
     var body = doc.getBody();
     
-    // Create regex pattern - escape special regex characters
-    var pattern = '#' + escapeRegex(tagName) + '(?![a-zA-Z0-9_.-])';
+    // Create regex pattern
+    var pattern = '#' + tagName + '\\b';
     
     // Find and remove all instances
     var searchResult = body.findText(pattern);
@@ -646,8 +647,8 @@ function highlightTag(tagName) {
   try {
     var doc = DocumentApp.getActiveDocument();
     var body = doc.getBody();
-    // Create regex pattern - escape special regex characters
-    var pattern = '#' + escapeRegex(tagName) + '(?![a-zA-Z0-9_.-])';
+    var pattern = '#' + tagName + '\\b';
+
     
     var rangeBuilder = doc.newRange();
     var searchResult = body.findText(pattern);
