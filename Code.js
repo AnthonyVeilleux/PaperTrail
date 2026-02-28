@@ -2,7 +2,13 @@
  * Research Tag Manager for Google Docs
  * Code.gs - Backend Script 
  */
-
+// Allows functions to be seen by test files when running in Node environment
+if (typeof module !== 'undefined') {
+  module.exports = {
+    hideSidebar: hideSidebar,
+    showSidebar: showSidebar,
+  };
+}
 // Install menu when document opens
 function onOpen() {
   DocumentApp.getUi()
