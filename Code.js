@@ -72,15 +72,6 @@ function refreshAllTags() {
   }
 }
 
-/**
- * Show settings dialog
- */
-function showSettings() {
-  var html = HtmlService.createHtmlOutput('<p style=\"padding: 20px;\">Settings coming soon...</p>')
-    .setWidth(300)
-    .setHeight(200);
-  DocumentApp.getUi().showModalDialog(html, 'Settings');
-}
 
 /**
  * Get document info
