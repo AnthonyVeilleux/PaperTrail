@@ -11,7 +11,6 @@ function onOpen() {
     .addItem('Refresh Tags', 'refreshAllTags')
     .addSeparator()
     .addItem('Export Tagged Notes', 'showExportTaggedNotesDialog')
-    .addItem('Settings', 'showSettings')
     .addToUi();
   
   // Display keyboard shortcut hint to user
