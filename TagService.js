@@ -472,13 +472,15 @@ function buildTagBookmarks(documentTags) {
     if (existing) {
       var existingMap = JSON.parse(existing);
       Object.keys(existingMap).forEach(function(tagName) {
+        if (existingMap[tagName]) {
         existingMap[tagName].forEach(function(bookmarkId) {
+            try {
           var bookmark = doc.getBookmark(bookmarkId);
-          if (bookmark) {
-            bookmark.remove();
+              if (bookmark) bookmark.remove();
+            } catch(e) {}
+          });
           }
         });
-      });
     }
   } catch (e) {
     Logger.log('Error removing existing tag bookmarks: ' + e.toString());
