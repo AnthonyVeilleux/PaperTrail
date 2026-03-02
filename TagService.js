@@ -657,23 +657,6 @@ function getRandomColor() {
 }
 
 
-/**
- * Clear all stored data (for debugging)
- */
-function clearAllData() {
-  var ui = DocumentApp.getUi();
-  var response = ui.alert(
-    'Clear All Data',
-    'This will delete all tag metadata. Are you sure?',
-    ui.ButtonSet.YES_NO
-  );
-  
-  if (response === ui.Button.YES) {
-    PropertiesService.getDocumentProperties().deleteAllProperties();
-    ui.alert('Success', 'All tag data has been cleared.', ui.ButtonSet.OK);
-  }
-}
-
 function touchTagsUpdated_() {
   try {
     PropertiesService.getDocumentProperties()
