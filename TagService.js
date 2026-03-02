@@ -737,39 +737,8 @@ function getRandomColor() {
   return colors[Math.floor(Math.random() * colors.length)];
 }
 
-/**
- * Create a bookmark at the current cursor position
- */
-function createBookmarkAtCursor() {
-  try {
-    var doc = DocumentApp.getActiveDocument();
-    var cursor = doc.getCursor();
 
-    if (!cursor) {
-      return { success: false, error: 'No cursor position found.' };
-    }
 
-    var surroundingText = cursor.getSurroundingText();
-    var surroundingOffset = cursor.getSurroundingTextOffset();
-
-    if (!surroundingText || surroundingOffset === null) {
-      return { success: false, error: 'Unable to resolve cursor position.' };
-    }
-
-    var position = doc.newPosition(surroundingText, surroundingOffset);
-    var bookmark = doc.addBookmark(position);
-    var bookmarkId = bookmark.getId();
-
-    return {
-      success: true,
-      id: bookmarkId,
-      url: doc.getUrl() + '#bookmark=' + bookmarkId
-    };
-  } catch (e) {
-    Logger.log('Error creating bookmark: ' + e.toString());
-    return { success: false, error: e.toString() };
-  }
-}
 
 /**
  * Create a bookmark for each new tag (first occurrence only)
