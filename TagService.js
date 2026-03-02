@@ -473,14 +473,14 @@ function buildTagBookmarks(documentTags) {
       var existingMap = JSON.parse(existing);
       Object.keys(existingMap).forEach(function(tagName) {
         if (existingMap[tagName]) {
-        existingMap[tagName].forEach(function(bookmarkId) {
+          existingMap[tagName].forEach(function(bookmarkId) {
             try {
-          var bookmark = doc.getBookmark(bookmarkId);
+              var bookmark = doc.getBookmark(bookmarkId);
               if (bookmark) bookmark.remove();
             } catch(e) {}
           });
-          }
-        });
+        }
+      });
     }
   } catch (e) {
     Logger.log('Error removing existing tag bookmarks: ' + e.toString());
@@ -657,11 +657,3 @@ function getRandomColor() {
 }
 
 
-function touchTagsUpdated_() {
-  try {
-    PropertiesService.getDocumentProperties()
-      .setProperty('tags_last_updated',new Date().toISOString());
-  } catch (e) {
-    Logger.log('Error setting tags_last_updated: '+ e);
-  }
-}
