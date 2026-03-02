@@ -659,48 +659,6 @@ function getRandomColor() {
 
 
 
-/**
- * Create a bookmark for each new tag (first occurrence only)
- */
-function createBookmarksForNewTags(tagCounts) {
-  var doc = DocumentApp.getActiveDocument();
-  var body = doc.getBody();
-  var properties = PropertiesService.getDocumentProperties();
-  var data = properties.getProperty('tag_first_bookmarks');
-  var bookmarkMap = data ? JSON.parse(data) : {};
-
-  Object.keys(tagCounts).forEach(function(tagName) {
-    var existingId = bookmarkMap[tagName];
-    if (existingId) {
-      try {
-        if (doc.getBookmark(existingId)) {
-          return;
-        }
-      } catch (e) {
-        Logger.log('Error reading bookmark ' + existingId + ': ' + e.toString());
-      }
-    }
-
-    var pattern = '#' + escapeRegex(tagName) + '(?![a-zA-Z0-9_.-])';
-    var searchResult = body.findText(pattern);
-    if (!searchResult) {
-      return;
-    }
-
-    var element = searchResult.getElement();
-    if (element.getType() !== DocumentApp.ElementType.TEXT) {
-      return;
-    }
-
-    var textElement = element.asText();
-    var position = doc.newPosition(textElement, searchResult.getStartOffset());
-    var bookmark = doc.addBookmark(position);
-    bookmarkMap[tagName] = bookmark.getId();
-  });
-
-  properties.setProperty('tag_first_bookmarks', JSON.stringify(bookmarkMap));
-}
-
 
 
 
