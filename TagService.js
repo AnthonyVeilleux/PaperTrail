@@ -449,31 +449,7 @@ function renameTagInDocument(oldName, newName) {
 
 
 
-/**
- * Remove tag from projects data
- */
-function removeTagFromProjects(tagName) {
-  try {
-    var properties = PropertiesService.getDocumentProperties();
-    var projectsData = properties.getProperty('projects');
-    
-    if (!projectsData) return;
-    
-    var projects = JSON.parse(projectsData);
-    
-    projects.forEach(function(project) {
-      if (project.tags) {
-        project.tags = project.tags.filter(function(tag) {
-          return tag.name !== tagName;
-        });
-      }
-    });
-    
-    properties.setProperty('projects', JSON.stringify(projects));
-  } catch (e) {
-    Logger.log('Error removing tag from projects: ' + e.toString());
-  }
-}
+
 
 
 
