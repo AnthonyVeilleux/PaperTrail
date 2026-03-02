@@ -657,20 +657,6 @@ function getRandomColor() {
 }
 
 
-
-
-
-
-
-/**
- * Test function to debug hashtag extraction
- */
-function testTagExtraction() {
-  var tags = extractHashtagsFromDocument();
-  Logger.log('Tags found: ' + JSON.stringify(tags));
-  return tags;
-}
-
 /**
  * Clear all stored data (for debugging)
  */
