@@ -27,12 +27,22 @@ function onOpen() {
 
 // Show the sidebar
 function showSidebar() {
-  var html = HtmlService.createHtmlOutputFromFile('Index')
+  // Use templated HTML so we can include external HTML snippets (like the script file)
+  var template = HtmlService.createTemplateFromFile('Index');
+  var html = template.evaluate()
     .setTitle('Tag Manager')
     .setWidth(360)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
   DocumentApp.getUi().showSidebar(html);
+}
+
+/**
+ * Include helper for HTML templates
+ * Usage in HTML file: <?!= include('Scripts') ?>
+ */
+function include(filename) {
+  return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
 
 // Hide/close the sidebar (called via Ctrl+K from document or sidebar)
@@ -1250,4 +1260,3 @@ function touchTagsUpdated_() {
     Logger.log('Error setting tags_last_updated: '+ e);
   }
 }
-

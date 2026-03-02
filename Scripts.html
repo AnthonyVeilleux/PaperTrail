@@ -1,0 +1,782 @@
+<!-- Script tag originally in index.html, now in its own file for organizational purposes -->
+<script>
+  let currentFilter = 'projects';
+  let allTags = null;
+  let currentTag = null;
+  let expandedProjects = [];
+  let expandedTags = {};
+  let expandedOccurrences = {};
+  let occurrenceDetails = {};
+  let refreshTimer=null;
+  let isRefreshing=false;
+  let lastSeenUpdated='';
+  let autocompleteInitialized=false
+
+  const colors = [
+    { value: '#1A73E8', name: 'Blue' },
+    { value: '#34A853', name: 'Green' },
+    { value: '#FBBC04', name: 'Yellow' },
+    { value: '#EA4335', name: 'Red' },
+    { value: '#9334E9', name: 'Purple' },
+    { value: '#0891B2', name: 'Cyan' }
+  ];
+
+  // Load tags on startup
+  window.onload = function() {
+    console.log('Loading tags...');
+    loadTags();
+    setupKeyboardShortcuts();
+    startAutoRefresh();
+  };
+
+  // Setup keyboard shortcuts
+  function setupKeyboardShortcuts() {
+    console.log('Setting up keyboard shortcuts...');
+    
+    // Handle Shift+K to toggle sidebar
+    function handleKeyDown(e) {
+      console.log('Key event captured:', {key: e.key, code: e.code, shift: e.shiftKey, ctrl: e.ctrlKey});
+      
+      // Check for Shift+K
+      if (e.shiftKey && (e.code === 'KeyK' || e.key === 'K' || e.key === 'k')) {
+        e.preventDefault();
+        e.stopPropagation();
+        console.log('✓ Shift+K detected - Closing sidebar');
+        
+        // Show visual feedback
+        const header = document.querySelector('.header');
+        if (header) {
+          header.style.backgroundColor = '#e8f0fe';
+          header.style.transition = 'background-color 0.3s ease';
+        }
+        
+        // Call the Google Apps Script function to close the sidebar
+        setTimeout(function() {
+          google.script.run
+            .withSuccessHandler(function() {
+              console.log('Sidebar closed successfully');
+            })
+            .withFailureHandler(function(error) {
+              console.error('Error closing sidebar:', error);
+            })
+            .hideSidebar();
+        }, 100);
+      }
+    }
+    
+    // Attach listeners with capture phase for better event catching
+    document.addEventListener('keydown', handleKeyDown, true);
+    window.addEventListener('keydown', handleKeyDown, true);
+    document.body && document.body.addEventListener('keydown', handleKeyDown, true);
+    
+    // Also add keyup as backup
+    document.addEventListener('keyup', function(e) {
+      if (e.shiftKey && (e.code === 'KeyK' || e.key === 'K' || e.key === 'k')) {
+        console.log('Shift+K key up event');
+      }
+    }, true);
+    
+    console.log('✓ Keyboard shortcuts setup complete');
+  }
+
+  // ===== AUTOCOMPLETE FEATURE =====
+  let autocompleteData = [];
+  let currentAutocompleteIndex = -1;
+  
+  function initializeAutocomplete() {
+    const searchInput = document.getElementById('searchInput');
+    const autocompleteList = document.getElementById('autocompleteList');
+    
+    // Input event for showing suggestions
+    searchInput.addEventListener('input', function(e) {
+      const query = e.target.value.trim().toLowerCase();
+      
+      if (query.length === 0) {
+        autocompleteList.classList.remove('show');
+        currentAutocompleteIndex = -1;
+        return;
+      }
+      
+      // Get all available tags from allTags
+      const allTagsList = getAllTagsFromData();
+      
+      // Filter tags based on query
+      const matches = allTagsList.filter(tag => 
+        tag.name.toLowerCase().includes(query)
+      ).slice(0, 10); // Limit to 10 results
+      
+      if (matches.length === 0) {
+        autocompleteList.classList.remove('show');
+        return;
+      }
+      
+      autocompleteData = matches;
+      currentAutocompleteIndex = -1;
+      renderAutocompleteList(matches, query);
+      autocompleteList.classList.add('show');
+    });
+    
+    // Keyboard navigation
+    searchInput.addEventListener('keydown', function(e) {
+      const autocompleteList = document.getElementById('autocompleteList');
+      if (!autocompleteList.classList.contains('show')) return;
+      
+      switch(e.key) {
+        case 'ArrowDown':
+          e.preventDefault();
+          currentAutocompleteIndex = Math.min(currentAutocompleteIndex + 1, autocompleteData.length - 1);
+          updateAutocompleteSelection();
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          currentAutocompleteIndex = Math.max(currentAutocompleteIndex - 1, -1);
+          updateAutocompleteSelection();
+          break;
+        case 'Enter':
+          e.preventDefault();
+          if (currentAutocompleteIndex >= 0 && autocompleteData[currentAutocompleteIndex]) {
+            selectAutocompleteItem(autocompleteData[currentAutocompleteIndex]);
+          }
+          break;
+        case 'Escape':
+          autocompleteList.classList.remove('show');
+          currentAutocompleteIndex = -1;
+          break;
+      }
+    });
+    
+    // Close autocomplete when clicking outside
+    document.addEventListener('click', function(e) {
+      if (e.target !== searchInput) {
+        autocompleteList.classList.remove('show');
+      }
+    });
+  }
+  
+  function getAllTagsFromData() {
+    const tags = [];
+    if (!allTags) return tags;
+    
+    // Get tags from projects
+    if (allTags.projects) {
+      allTags.projects.forEach(project => {
+        if (project.tags) {
+          project.tags.forEach(tag => {
+            if (!tags.find(t => t.name === tag.name)) {
+              tags.push({
+                name: tag.name,
+                count: tag.count,
+                color: tag.color,
+                type: 'project'
+              });
+            }
+          });
+        }
+      });
+    }
+    
+    // Get global tags
+    if (allTags.globalTags) {
+      allTags.globalTags.forEach(tag => {
+        if (!tags.find(t => t.name === tag.name)) {
+          tags.push({
+            name: tag.name,
+            count: tag.count,
+            color: tag.color,
+            type: 'global'
+          });
+        }
+      });
+    }
+    
+    return tags.sort((a, b) => b.count - a.count); // Sort by count
+  }
+  
+  function renderAutocompleteList(matches, query) {
+    const autocompleteList = document.getElementById('autocompleteList');
+    const html = matches.map((tag, index) => {
+      const highlightedName = highlightQuery(tag.name, query);
+      return `
+        <div class="autocomplete-item" data-index="${index}" onclick="selectAutocompleteItem({name: '${tag.name}', count: ${tag.count}, color: '${tag.color}', type: '${tag.type}'})">
+          <div class="autocomplete-icon">#</div>
+          <div class="autocomplete-text">${highlightedName}</div>
+          <div class="autocomplete-count">${tag.count}</div>
+        </div>
+      `;
+    }).join('');
+    
+    autocompleteList.innerHTML = html;
+  }
+  
+  function highlightQuery(text, query) {
+    const regex = new RegExp(`(${query})`, 'gi');
+    return text.replace(regex, '<span class="autocomplete-match">$1</span>');
+  }
+  
+  function updateAutocompleteSelection() {
+    const items = document.querySelectorAll('.autocomplete-item');
+    items.forEach((item, index) => {
+      if (index === currentAutocompleteIndex) {
+        item.classList.add('selected');
+        item.scrollIntoView({ block: 'nearest' });
+      } else {
+        item.classList.remove('selected');
+      }
+    });
+  }
+  
+  function selectAutocompleteItem(tag) {
+    const searchInput = document.getElementById('searchInput');
+    const autocompleteList = document.getElementById('autocompleteList');
+    
+    searchInput.value = '#' + tag.name;
+    autocompleteList.classList.remove('show');
+    currentAutocompleteIndex = -1;
+    
+    // Perform search/filter
+    performSearch(tag.name);
+  }
+  
+  function performSearch(tagName) {
+    if (!allTags) return;
+    
+    const searchInput = document.getElementById('searchInput');
+    const query = searchInput.value.replace('#', '').toLowerCase();
+    
+    // Filter projects and tags
+    const filteredProjects = allTags.projects.map(project => ({
+      ...project,
+      tags: project.tags ? project.tags.filter(tag => 
+        tag.name.toLowerCase().includes(query)
+      ) : []
+    })).filter(project => project.tags.length > 0);
+    
+    if (filteredProjects.length === 0) {
+      const content = document.getElementById('content');
+      content.innerHTML = `
+        <div class="empty-state">
+          <div style="font-size:48px;margin-bottom:12px;">🔍</div>
+          <div class="empty-title">No Tags Found</div>
+          <p style="font-size:12px;color:#80868b;margin-top:8px;">No tags matching "<strong>#${query}</strong>"</p>
+        </div>
+      `;
+    } else {
+      renderProjectsView(filteredProjects);
+    }
+  }
+  // ===== END AUTOCOMPLETE FEATURE =====
+
+  function loadTags() {
+    if (isRefreshing) return;
+    isRefreshing=true;
+    console.log('Calling getAllTags...');
+    google.script.run
+      .withSuccessHandler(function(data) {
+        console.log('Success! Received data:', data);
+        if (data && data.lastUpdated && data.lastUpdated !== lastSeenUpdated) {
+          lastSeenUpdated = data.lastUpdated;
+        }
+        renderTags(data);
+        refreshExpandedOccurrences();
+        isRefreshing=false;
+      })
+      .withFailureHandler(function(error) {
+        console.error('Error:', error);
+        showError(error);
+        isRefreshing=false;
+      })
+      .getAllTags();
+  }
+  function startAutoRefresh() {
+    if (refreshTimer) clearInterval(refreshTimer);
+
+    refreshTimer = setInterval(function () {
+      if (isRefreshing) return;
+      loadTags();
+    }, 2000);
+  }
+
+
+  function renderTags(data) {
+    console.log('Rendering tags:', data);
+    allTags = data;
+    const content = document.getElementById('content');
+    
+    // Initialize autocomplete with loaded data
+    if (!autocompleteInitialized){
+      initializeAutocomplete();
+      autocompleteInitialized=true;
+    }
+    
+    
+    if (currentFilter === 'projects') {
+      renderProjectsView(data.projects);
+    } else if (currentFilter === 'global') {
+      renderGlobalView(data.projects);
+    } else {
+      content.innerHTML = '<div class="empty-state"><div class="empty-title">Coming Soon</div></div>';
+    }
+  }
+
+  function renderDateView(projects) {
+    const content = document.getElementById('content');
+    
+    // Collect all tags with their project info
+    const tagsByDate = {};
+    const today = new Date().toISOString().split('T')[0];
+    const defaultDate = today;
+    
+    projects.forEach(project => {
+      if (project.tags) {
+        project.tags.forEach(tag => {
+          // Group by creation/usage date (using current date as placeholder)
+          // In a real implementation, this would come from tag metadata
+          const dateKey = defaultDate;
+          
+          if (!tagsByDate[dateKey]) {
+            tagsByDate[dateKey] = [];
+          }
+          
+          tagsByDate[dateKey].push({
+            ...tag,
+            projectName: project.name,
+            projectId: project.id
+          });
+        });
+      }
+    });
+    
+    if (Object.keys(tagsByDate).length === 0) {
+      content.innerHTML = `
+        <div class="empty-state">
+          <div style="font-size:48px;margin-bottom:12px;">📅</div>
+          <div class="empty-title">No Tags by Date</div>
+          <p style="font-size:12px;color:#80868b;margin-top:8px;">Tags will be organized by date here</p>
+        </div>
+      `;
+      return;
+    }
+    
+    let html = '';
+    
+    // Sort dates in descending order
+    Object.keys(tagsByDate).sort().reverse().forEach(dateKey => {
+      const tags = tagsByDate[dateKey];
+      const totalCount = tags.reduce((sum, tag) => sum + tag.count, 0);
+      
+      // Format date nicely
+      const date = new Date(dateKey + 'T00:00:00');
+      const today = new Date().toISOString().split('T')[0];
+      let dateLabel = dateKey;
+      
+      if (dateKey === today) {
+        dateLabel = 'Today';
+      } else {
+        dateLabel = date.toLocaleDateString('en-US', { 
+          weekday: 'short', 
+          month: 'short', 
+          day: 'numeric',
+          year: 'numeric'
+        });
+      }
+      
+      html += `
+        <div class="project">
+          <div class="project-header" onclick="toggleDateGroup('${dateKey}')">
+            <span style="font-size:16px;">📅</span>
+            <div class="project-name">${dateLabel} <span class="tag-count">${totalCount}</span></div>
+          </div>
+      `;
+      
+      const isExpanded = expandedProjects.includes(dateKey);
+      if (isExpanded) {
+        html += '<div class="tags-list">';
+        tags.forEach(tag => {
+          const tagColor = tag.color || '#80868b';
+          html += `
+            <div class="tag-item" onclick="handleTagClick('${tag.name}', event, ${tag.count})">
+              <div class="tag-main">
+                <div class="tag-dot" style="background-color:${tagColor}; flex-shrink: 0;"></div>
+                <span class="tag-name">#${tag.name}</span>
+                ${tag.count > 0 ? `<span class="tag-count-badge">${tag.count}</span>` : ''}
+                <span style="font-size:11px;color:#5f6368;">in this document</span>
+              </div>
+            </div>
+            ${tag.count > 1 && expandedOccurrences[tag.name] ? renderOccurrencesList(tag.name, tag.count, tagColor) : ''}
+          `;
+        });
+        html += '</div>';
+      }
+      
+      html += '</div>';
+    });
+    
+    content.innerHTML = html;
+  }
+
+  function renderGlobalView(projects) {
+    const content = document.getElementById('content');
+    
+    // Collect all unique tags from all projects
+    const allTagsMap = {};
+    
+    projects.forEach(project => {
+      if (project.tags) {
+        project.tags.forEach(tag => {
+          const baseTagName = tag.name.split('.')[0]; // Get root tag name
+          
+          if (!allTagsMap[tag.name]) {
+            allTagsMap[tag.name] = {
+              ...tag,
+              projects: [],
+              totalCount: 0
+            };
+          }
+          
+          if (!allTagsMap[tag.name].projects.find(p => p.id === project.id)) {
+            allTagsMap[tag.name].projects.push({
+              id: project.id,
+              name: project.name
+            });
+          }
+          
+          allTagsMap[tag.name].totalCount += tag.count;
+        });
+      }
+    });
+    
+    const allTagsList = Object.values(allTagsMap)
+      .sort((a, b) => b.totalCount - a.totalCount); // Sort by usage count
+    
+    if (allTagsList.length === 0) {
+      content.innerHTML = `
+        <div class="empty-state">
+          <div style="font-size:48px;margin-bottom:12px;">🌍</div>
+          <div class="empty-title">No Global Tags</div>
+          <p style="font-size:12px;color:#80868b;margin-top:8px;">Start creating tags to see them here</p>
+        </div>
+      `;
+      return;
+    }
+    
+    let html = '<div style="padding:4px;">';
+    
+    allTagsList.forEach(tag => {
+      const tagColor = tag.color || '#80868b';
+      html += `
+        <div class="tag-item" style="padding: 10px 12px; border-radius: 8px; margin-bottom: 6px; background: #f8f9fa;" onclick="handleTagClick('${tag.name}', event, ${tag.totalCount})">
+          <div class="tag-main">
+            <div class="tag-dot" style="background-color:${tagColor}; flex-shrink: 0;"></div>
+            <div style="flex: 1;">
+              <span class="tag-name">#${tag.name}</span>
+              <div style="font-size:11px;color:#5f6368;margin-top:2px;">Used in this document</div>
+            </div>
+            <span class="tag-count-badge">${tag.totalCount}</span>
+          </div>
+        </div>
+        ${tag.totalCount > 1 && expandedOccurrences[tag.name] ? renderOccurrencesList(tag.name, tag.totalCount, tagColor) : ''}
+      `;
+    });
+    
+    html += '</div>';
+    content.innerHTML = html;
+  }
+
+  function toggleDateGroup(dateKey) {
+    const index = expandedProjects.indexOf(dateKey);
+    if (index > -1) {
+      expandedProjects.splice(index, 1);
+    } else {
+      expandedProjects.push(dateKey);
+    }
+    renderTags(allTags);
+  }
+
+  function renderProjectsView(projects) {
+    const content = document.getElementById('content');
+
+    const combinedTagsMap = {};
+    if (projects) {
+      projects.forEach(project => {
+        (project.tags || []).forEach(tag => {
+          if (!combinedTagsMap[tag.name]) {
+            combinedTagsMap[tag.name] = { ...tag };
+          } else {
+            combinedTagsMap[tag.name].count += tag.count;
+          }
+        });
+      });
+    }
+
+    const combinedTags = Object.values(combinedTagsMap);
+
+    if (!combinedTags.length) {
+      content.innerHTML = `
+        <div class="empty-state">
+          <div style="font-size:48px;margin-bottom:12px;">🏷️</div>
+          <div class="empty-title">No Tags Found</div>
+          <p style="font-size:12px;color:#80868b;margin-top:8px;">Start typing #tagname in your document</p>
+          <button onclick="loadTags()" style="margin-top:16px;padding:8px 16px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer;">Refresh Tags</button>
+        </div>
+      `;
+      return;
+    }
+
+    const combinedProject = {
+      id: projects && projects.length ? projects[0].id : null,
+      tags: combinedTags
+    };
+
+    content.innerHTML = `<div class="project">${renderProjectTags(combinedProject)}</div>`;
+  }
+
+  function buildTagTree(tags) {
+    const tree = {};
+    
+    tags.forEach(tag => {
+      const parts = tag.name.split('.');
+      let current = tree;
+      let fullPath = '';
+      
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i];
+        fullPath = fullPath ? fullPath + '.' + part : part;
+        const isLast = i === parts.length - 1;
+        
+        if (!current[part]) {
+          current[part] = { 
+            children: {}, 
+            tag: null, 
+            fullPath: fullPath,
+            isIntermediate: !isLast
+          };
+        }
+        
+        if (isLast) {
+          current[part].tag = tag;
+          current[part].isIntermediate = false;
+        }
+        
+        current = current[part].children;
+      }
+    });
+    
+    return tree;
+  }
+
+  function renderTagNode(node, key, depth, projectId) {
+    if (!node) return '';
+    
+    const tag = node.tag;
+    const fullPath = node.fullPath;
+    const hasChildren = Object.keys(node.children).length > 0;
+    const isIntermediate = node.isIntermediate && !tag; // Intermediate if no tag but has children
+    const isExpanded = expandedTags && expandedTags[fullPath];
+    
+    // For intermediate nodes without a tag, they should only show if expanded
+    // For actual tags, show the expand button only if they have children
+    const shouldShowExpandButton = hasChildren && tag;
+    const tagColor = tag ? tag.color : '#80868b';
+    const tagCount = tag ? tag.count : 0;
+    
+    // If this is an intermediate node (no tag), don't render it as a node
+    // Just render its children directly
+    if (isIntermediate && !tag && hasChildren) {
+      let html = '<div class="nested-children">';
+      Object.keys(node.children).sort().forEach(childKey => {
+        html += renderTagNode(node.children[childKey], childKey, depth, projectId);
+      });
+      html += '</div>';
+      return html;
+    }
+    
+    const occurrenceCount = tagCount || getBookmarkCount(fullPath);
+    const showOccurrences = occurrenceCount > 1 && expandedOccurrences[fullPath];
+
+    let html = `
+      <div class="tag-item ${hasChildren ? 'parent-tag' : ''}" data-depth="${depth}" onclick="handleTagClick('${fullPath}', event, ${occurrenceCount})">
+        <div class="tag-main">
+          ${shouldShowExpandButton ? `<span class="tag-expand-icon ${isExpanded ? 'expanded' : ''}" onclick="toggleNestedTag('${fullPath}', event)" title="Toggle children">▶</span>` : '<span style="width:20px;"></span>'}
+          <div class="tag-dot" style="background-color:${tagColor}; flex-shrink: 0;"></div>
+          <span class="tag-name">#${key}</span>
+          ${tagCount > 0 ? `<span class="tag-count-badge">${tagCount}</span>` : ''}
+        </div>
+      </div>
+    `;
+
+    if (showOccurrences) {
+      html += renderOccurrencesList(fullPath, occurrenceCount, tagColor);
+    }
+    
+    // Render children if expanded
+    if (isExpanded && hasChildren) {
+      html += '<div class="nested-children">';
+      Object.keys(node.children).sort().forEach(childKey => {
+        html += renderTagNode(node.children[childKey], childKey, depth + 1, projectId);
+      });
+      html += '</div>';
+    }
+    
+    return html;
+  }
+
+  function renderProjectTags(project) {
+    if (!project.tags || project.tags.length === 0) {
+      return '<div class="tags-list"><p style="padding:20px;color:#80868b;font-size:12px;">No tags yet</p></div>';
+    }
+
+    // Build tree structure from flat tag list
+    const tagTree = buildTagTree(project.tags);
+    
+    let html = '<div class="tags-list">';
+    
+    // Render all root-level tags
+    Object.keys(tagTree).forEach(key => {
+      html += renderTagNode(tagTree[key], key, 0, project.id);
+    });
+    
+    html += '</div>';
+    return html;
+  }
+  
+  function toggleNestedTag(parentName, event) {
+    if (event) event.stopPropagation();
+    if (!expandedTags) expandedTags = {};
+    expandedTags[parentName] = !expandedTags[parentName];
+    renderTags(allTags);
+  }
+
+  function toggleProject(projectName) {
+    const index = expandedProjects.indexOf(projectName);
+    if (index > -1) {
+      expandedProjects.splice(index, 1);
+    } else {
+      expandedProjects.push(projectName);
+    }
+    renderTags(allTags);
+  }
+
+  function setFilter(filter) {
+    currentFilter = filter;
+    expandedProjects = []; // Reset expansion state when changing filters
+    document.querySelectorAll('.filter-tab').forEach(tab => {
+      tab.classList.remove('active');
+      if (tab.dataset.filter === filter) {
+        tab.classList.add('active');
+      }
+    });
+    if (allTags) renderTags(allTags);
+  }
+
+  function showError(error) {
+    console.error('Error:', error);
+    document.getElementById('content').innerHTML = `
+      <div class="empty-state">
+        <div class="empty-title">Error Loading Tags</div>
+        <p style="font-size:12px;color:#80868b;margin-top:8px;">${error.message || error}</p>
+        <button onclick="loadTags()" style="margin-top:16px;padding:8px 16px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer;">Try Again</button>
+      </div>
+    `;
+  }
+
+  function renderOccurrencesList(tagName, occurrenceCount, tagColor) {
+    let html = '<div class="occurrences-list">';
+    const details = occurrenceDetails[tagName];
+    const isLoading = details && details.loading;
+    const items = details && details.items ? details.items : null;
+
+    if (items && items.length) {
+      items.forEach(function(item, i) {
+        let snippetText = item.snippet ? item.snippet : '...';
+        if (snippetText.length > 30) {
+          snippetText = snippetText.slice(0, 30).trimEnd() + '...';
+        }
+        html += `
+          <div class="occurrence-item" onclick="jumpToTag('${tagName}', ${i}); event.stopPropagation();">
+            <div class="tag-dot" style="background-color:${tagColor}; flex-shrink: 0;"></div>
+            <div class="tag-name">${snippetText}</div>
+          </div>
+        `;
+      });
+    } else if (isLoading) {
+      html += `
+        <div class="occurrence-item">
+          <div class="tag-dot" style="background-color:${tagColor}; flex-shrink: 0;"></div>
+          <span class="tag-name">Loading occurrences...</span>
+        </div>
+      `;
+    } else {
+      for (let i = 0; i < occurrenceCount; i++) {
+        const label = 'Occurrence ' + (i + 1);
+        html += `
+          <div class="occurrence-item" onclick="jumpToTag('${tagName}', ${i}); event.stopPropagation();">
+            <div class="tag-dot" style="background-color:${tagColor}; flex-shrink: 0;"></div>
+            <span class="tag-name">${label}</span>
+          </div>
+        `;
+      }
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function refreshExpandedOccurrences() {
+    const expandedTags = Object.keys(expandedOccurrences || {});
+    expandedTags.forEach(function(tagName) {
+      if (expandedOccurrences[tagName]) {
+        fetchOccurrenceDetails(tagName);
+      }
+    });
+  }
+
+  function getBookmarkCount(tagName) {
+    if (!allTags || !allTags.bookmarkCounts) return 0;
+    return allTags.bookmarkCounts[tagName] || 0;
+  }
+
+  function handleTagClick(tagName, event, occurrenceCount) {
+    if (event) event.stopPropagation();
+    const count = typeof occurrenceCount === 'number' ? occurrenceCount : getBookmarkCount(tagName);
+    if (count > 1) {
+      expandedOccurrences[tagName] = !expandedOccurrences[tagName];
+      if (expandedOccurrences[tagName]) {
+        fetchOccurrenceDetails(tagName);
+      }
+      renderTags(allTags);
+      return;
+    }
+    jumpToTag(tagName, 0);
+  }
+
+  function fetchOccurrenceDetails(tagName) {
+    if (occurrenceDetails[tagName] && occurrenceDetails[tagName].loading) {
+      return;
+    }
+    const existingItems = occurrenceDetails[tagName] && occurrenceDetails[tagName].items ? occurrenceDetails[tagName].items : null;
+    occurrenceDetails[tagName] = { loading: true, items: existingItems };
+    google.script.run
+      .withSuccessHandler(function(result) {
+        const occurrences = result && result.occurrences ? result.occurrences : [];
+        occurrenceDetails[tagName] = { loading: false, items: occurrences };
+        renderTags(allTags);
+      })
+      .withFailureHandler(function(error) {
+        console.error('Error loading occurrences:', error);
+        occurrenceDetails[tagName] = { loading: false, items: [] };
+        renderTags(allTags);
+      })
+      .getTagOccurrences(tagName, 80);
+  }
+
+  function jumpToTag(tagName, occurrenceIndex) {
+    google.script.run
+      .withSuccessHandler(function() {
+        console.log('Navigated to tag:', tagName);
+      })
+      .withFailureHandler(function(error) {
+        console.error('Error navigating to tag:', error);
+      })
+      .jumpToTagBookmark(tagName, occurrenceIndex || 0);
+  }
+
+</script>
