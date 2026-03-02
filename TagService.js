@@ -579,38 +579,8 @@ function removeTagFromProjects(tagName) {
   }
 }
 
-/**
- * Highlight tag in document
- */
-function highlightTag(tagName) {
-  try {
-    var doc = DocumentApp.getActiveDocument();
-    var body = doc.getBody();
-    var pattern = '#' + escapeTagForRegex(tagName) + '\\b';
 
-    
-    var rangeBuilder = doc.newRange();
-    var searchResult = body.findText(pattern);
-    var found = false;
-    
-    while (searchResult !== null) {
-      var element = searchResult.getElement();
-      rangeBuilder.addElement(element.asText(), searchResult.getStartOffset(), searchResult.getEndOffsetInclusive());
-      found = true;
-      searchResult = body.findText(pattern, searchResult);
-    }
-    
-    if (found) {
-      doc.setSelection(rangeBuilder.build());
-      return { success: true };
-    } else {
-      return { success: false, error: 'Tag not found in document' };
-    }
-  } catch (e) {
-    Logger.log('Error highlighting tag: ' + e.toString());
-    return { success: false, error: e.toString() };
-  }
-}
+
 
 /**
  * Build or refresh bookmarks for all tags in the document
