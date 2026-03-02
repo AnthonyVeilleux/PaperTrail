@@ -326,46 +326,8 @@ function establishNestedTagRelationships(hierarchyMap) {
   }
 }
 
-/**
- * Get full tag hierarchy including parent and children
- */
-function getTagHierarchy() {
-  try {
-    var allTags = getAllTags();
-    var hierarchy = {
-      rootTags: [],
-      nestedTags: {}
-    };
-    
-    // Combine all tags from projects and global tags
-    var allTagsList = [];
-    allTags.projects.forEach(function(project) {
-      if (project.tags) {
-        allTagsList = allTagsList.concat(project.tags);
-      }
-    });
-    allTagsList = allTagsList.concat(allTags.globalTags || []);
-    
-    // Build hierarchy
-    allTagsList.forEach(function(tag) {
-      var metadata = tag.metadata || getOrCreateTagMetadata(tag.name);
-      
-      if (!metadata.isNested) {
-        hierarchy.rootTags.push({
-          name: tag.name,
-          count: tag.count || 0,
-          color: tag.color || metadata.color,
-          children: metadata.children || []
-        });
-      }
-    });
-    
-    return hierarchy;
-  } catch (e) {
-    Logger.log('Error getting tag hierarchy: ' + e.toString());
-    return { rootTags: [], nestedTags: {} };
-  }
-}
+
+
 
 /**
  * Update tag metadata
