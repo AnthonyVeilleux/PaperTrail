@@ -505,53 +505,8 @@ function renameTagInDocument(oldName, newName) {
   }
 }
 
-/**
- * Delete tag from document
- */
-function deleteTag(tagName) {
-  try {
-    Logger.log('Deleting tag: ' + tagName);
-    
-    var doc = DocumentApp.getActiveDocument();
-    var body = doc.getBody();
-    
-    // Create regex pattern
-    var pattern = '#' + escapeTagForRegex(tagName) + '\\b';
-    
-    // Find and remove all instances
-    var searchResult = body.findText(pattern);
-    var count = 0;
-    
-    while (searchResult !== null) {
-      var element = searchResult.getElement();
-      var start = searchResult.getStartOffset();
-      var end = searchResult.getEndOffsetInclusive();
-      
-      if (element.getType() === DocumentApp.ElementType.TEXT) {
-        var textElement = element.asText();
-        textElement.deleteText(start, end);
-        count++;
-      }
-      
-      searchResult = body.findText(pattern);
-    }
-    
-    // Delete metadata
-    var properties = PropertiesService.getDocumentProperties();
-    properties.deleteProperty('tag_' + tagName);
-    
-    // Remove from projects
-    removeTagFromProjects(tagName);
-    // mark tags as updated
-    try { properties.setProperty('tags_last_updated', new Date().toISOString()); } catch(e) { Logger.log('Error setting tags_last_updated: ' + e.toString()); }
-    
-    Logger.log('Deleted ' + count + ' instances of tag');
-    return { success: true, message: 'Tag deleted successfully. Removed from ' + count + ' locations.' };
-  } catch (e) {
-    Logger.log('Error deleting tag: ' + e.toString());
-    return { success: false, error: e.toString() };
-  }
-}
+
+
 
 /**
  * Remove tag from projects data
