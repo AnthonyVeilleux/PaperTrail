@@ -72,24 +72,3 @@ function refreshAllTags() {
   }
 }
 
-
-/**
- * Get document info
- */
-function getDocumentInfo() {
-  try {
-    var doc = DocumentApp.getActiveDocument();
-    return {
-      name: doc.getName(),
-      id: doc.getId(),
-      url: doc.getUrl()
-    };
-  } catch (e) {
-    Logger.log('Error getting document info: ' + e.toString());
-    return {
-      name: 'Unknown',
-      id: 'unknown',
-      url: ''
-    };
-  }
-}
