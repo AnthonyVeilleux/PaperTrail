@@ -284,29 +284,8 @@ function saveTagMetadata(tagName, metadata) {
   }
 }
 
-/**
- * Save tags to Properties Service (Auto-sync)
- */
-function saveTags(tags) {
-  try {
-    const userProperties = PropertiesService.getUserProperties();
-    userProperties.setProperty('TAGS_DATA', JSON.stringify(tags));
-    // update document-level last-updated timestamp so clients can detect changes
-    try { PropertiesService.getDocumentProperties().setProperty('tags_last_updated', new Date().toISOString()); } catch(e) { Logger.log('Error setting last-updated: ' + e.toString()); }
 
-    return {
-      success: true,
-      timestamp: new Date().toISOString(),
-      count: tags.length
-    };
-  } catch (error) {
-    console.error('Error saving tags:', error);
-    return {
-      success: false,
-      error: error.message
-    };
-  }
-}
+
 
 /**
  * Establish parent-child relationships for nested tags
