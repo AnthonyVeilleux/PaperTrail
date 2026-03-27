@@ -1,5 +1,13 @@
 {
   "dependencies": {
     "git": "^0.1.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.0.0",
+    "globals": "^17.3.0"
+  },
+  "scripts": {
+    "lint": "eslint ."
   }
 }
