@@ -10,7 +10,14 @@
   let refreshTimer=null;
   let isRefreshing=false;
   let lastSeenUpdated='';
-  let autocompleteInitialized=false
+  let autocompleteInitialized=false;
+  let globalSearchTerm = '';
+  let globalSearchResults = null;
+  let globalSearchLoading = false;
+  let globalSubmittedQuery = '';
+  let globalAutocompleteCatalog = [];
+  let globalAutocompleteLoaded = false;
+  let globalAutocompleteLoading = false;
 
   const colors = [
     { value: '#1A73E8', name: 'Blue' },
@@ -89,6 +96,41 @@
     
     // Input event for showing suggestions
     searchInput.addEventListener('input', function(e) {
+      if (currentFilter === 'global') {
+        const query = getGlobalActiveTokenQuery_(e.target.value);
+        if (!query) {
+          autocompleteList.classList.remove('show');
+          currentAutocompleteIndex = -1;
+          return;
+        }
+
+        if (!globalAutocompleteLoaded) {
+          ensureGlobalAutocompleteCatalog_();
+          autocompleteList.classList.remove('show');
+          currentAutocompleteIndex = -1;
+          return;
+        }
+
+        const matches = globalAutocompleteCatalog
+          .filter(function(tag) {
+            return String(tag.name || '').toLowerCase().includes(query);
+          })
+          .slice(0, 10);
+
+        if (!matches.length) {
+          autocompleteData = [];
+          currentAutocompleteIndex = -1;
+          autocompleteList.classList.remove('show');
+          return;
+        }
+
+        autocompleteData = matches;
+        currentAutocompleteIndex = -1;
+        renderAutocompleteList(matches, query);
+        autocompleteList.classList.add('show');
+        return;
+      }
+
       const query = e.target.value.trim().toLowerCase();
       
       if (query.length === 0) {
@@ -119,6 +161,13 @@
     // Keyboard navigation
     searchInput.addEventListener('keydown', function(e) {
       const autocompleteList = document.getElementById('autocompleteList');
+
+      if (currentFilter === 'global' && e.key === 'Enter' && !autocompleteList.classList.contains('show')) {
+        e.preventDefault();
+        performSearch();
+        return;
+      }
+
       if (!autocompleteList.classList.contains('show')) return;
       
       switch(e.key) {
@@ -136,6 +185,18 @@
           e.preventDefault();
           if (currentAutocompleteIndex >= 0 && autocompleteData[currentAutocompleteIndex]) {
             selectAutocompleteItem(autocompleteData[currentAutocompleteIndex]);
+          } else {
+            autocompleteList.classList.remove('show');
+            currentAutocompleteIndex = -1;
+            if (currentFilter === 'global') {
+              performSearch();
+            }
+          }
+          break;
+        case ' ':
+          if (currentAutocompleteIndex >= 0 && autocompleteData[currentAutocompleteIndex]) {
+            e.preventDefault();
+            selectAutocompleteItem(autocompleteData[currentAutocompleteIndex], { appendSpace: true, runSearch: false });
           }
           break;
         case 'Escape':
@@ -197,7 +258,7 @@
     const html = matches.map((tag, index) => {
       const highlightedName = highlightQuery(tag.name, query);
       return `
-        <div class="autocomplete-item" data-index="${index}" onclick="selectAutocompleteItem({name: '${tag.name}', count: ${tag.count}, color: '${tag.color}', type: '${tag.type}'})">
+        <div class="autocomplete-item" data-index="${index}" onmouseenter="setAutocompleteIndex(${index})" onclick="selectAutocompleteItem({name: '${tag.name}', count: ${tag.count}, color: '${tag.color}', type: '${tag.type}'})">
           <div class="autocomplete-icon">#</div>
           <div class="autocomplete-text">${highlightedName}</div>
           <div class="autocomplete-count">${tag.count}</div>
@@ -224,21 +285,56 @@
       }
     });
   }
+
+  function setAutocompleteIndex(index) {
+    currentAutocompleteIndex = index;
+    updateAutocompleteSelection();
+  }
   
-  function selectAutocompleteItem(tag) {
+  function selectAutocompleteItem(tag, options) {
+    const opts = options || {};
+    const appendSpace = !!opts.appendSpace;
+    const runSearch = opts.runSearch !== false;
     const searchInput = document.getElementById('searchInput');
     const autocompleteList = document.getElementById('autocompleteList');
-    
-    searchInput.value = '#' + tag.name;
+
+    if (currentFilter === 'global') {
+      searchInput.value = applyGlobalSuggestion_(searchInput.value, tag.name);
+      if (appendSpace) {
+        searchInput.value = searchInput.value + ' ';
+      }
+    } else {
+      searchInput.value = '#' + tag.name + (appendSpace ? ' ' : '');
+    }
+
     autocompleteList.classList.remove('show');
     currentAutocompleteIndex = -1;
     
     // Perform search/filter
-    performSearch(tag.name);
+    if (runSearch) {
+      if (currentFilter === 'global') {
+        performSearch();
+      } else {
+        performSearch(tag.name);
+      }
+    }
   }
   
   function performSearch(tagName) {
     if (!allTags) return;
+
+    if (currentFilter === 'global') {
+      const searchInput = document.getElementById('searchInput');
+      const baseQuery = typeof tagName === 'string' && tagName.trim() ? tagName : searchInput.value;
+      const normalized = normalizeTagQuery_(baseQuery);
+
+      searchInput.value = normalized ? '#' + normalized : '';
+      globalSubmittedQuery = normalized;
+      globalSearchTerm = '';
+      globalSearchResults = null;
+      renderGlobalView();
+      return;
+    }
     
     const searchInput = document.getElementById('searchInput');
     const query = searchInput.value.replace('#', '').toLowerCase();
@@ -312,7 +408,7 @@
     if (currentFilter === 'projects') {
       renderProjectsView(data.projects);
     } else if (currentFilter === 'global') {
-      renderGlobalView(data.projects);
+      renderGlobalView();
     } else {
       content.innerHTML = '<div class="empty-state"><div class="empty-title">Coming Soon</div></div>';
     }
@@ -414,72 +510,216 @@
     content.innerHTML = html;
   }
 
-  function renderGlobalView(projects) {
+  function renderGlobalView() {
     const content = document.getElementById('content');
-    
-    // Collect all unique tags from all projects
-    const allTagsMap = {};
-    
-    projects.forEach(project => {
-      if (project.tags) {
-        project.tags.forEach(tag => {
-          const baseTagName = tag.name.split('.')[0]; // Get root tag name
-          
-          if (!allTagsMap[tag.name]) {
-            allTagsMap[tag.name] = {
-              ...tag,
-              projects: [],
-              totalCount: 0
-            };
-          }
-          
-          if (!allTagsMap[tag.name].projects.find(p => p.id === project.id)) {
-            allTagsMap[tag.name].projects.push({
-              id: project.id,
-              name: project.name
-            });
-          }
-          
-          allTagsMap[tag.name].totalCount += tag.count;
-        });
-      }
-    });
-    
-    const allTagsList = Object.values(allTagsMap)
-      .sort((a, b) => b.totalCount - a.totalCount); // Sort by usage count
-    
-    if (allTagsList.length === 0) {
+
+    if (!globalAutocompleteLoaded) {
+      ensureGlobalAutocompleteCatalog_();
+    }
+
+    const queryTags = parseTagQuery_(globalSubmittedQuery);
+    const queryKey = queryTags.join('|');
+
+    if (!queryTags.length) {
       content.innerHTML = `
         <div class="empty-state">
-          <div style="font-size:48px;margin-bottom:12px;">🌍</div>
-          <div class="empty-title">No Global Tags</div>
-          <p style="font-size:12px;color:#80868b;margin-top:8px;">Start creating tags to see them here</p>
+          <div class="global-empty-icon">🌍</div>
+          <div class="empty-title">Search Global Index</div>
+          <p class="global-empty-copy">Type one or more tags like <strong>#project-1 #methods</strong> and press Enter to search</p>
         </div>
       `;
       return;
     }
-    
-    let html = '<div style="padding:4px;">';
-    
-    allTagsList.forEach(tag => {
-      const tagColor = tag.color || '#80868b';
+
+    if (globalSearchLoading && globalSearchTerm === queryKey) {
+      content.innerHTML = `
+        <div class="loading">
+          <div class="spinner"></div>
+          <div>Searching index for ${formatTagList_(queryTags)}...</div>
+        </div>
+      `;
+      return;
+    }
+
+    if (globalSearchTerm === queryKey && Array.isArray(globalSearchResults)) {
+      renderGlobalSearchResults_(queryTags, globalSearchResults);
+      return;
+    }
+
+    globalSearchLoading = true;
+    globalSearchTerm = queryKey;
+    content.innerHTML = `
+      <div class="loading">
+        <div class="spinner"></div>
+        <div>Searching index for ${formatTagList_(queryTags)}...</div>
+      </div>
+    `;
+
+    google.script.run
+      .withSuccessHandler(function(rows) {
+        globalSearchLoading = false;
+        globalSearchResults = Array.isArray(rows) ? rows : [];
+        if (currentFilter === 'global') {
+          renderGlobalSearchResults_(queryTags, globalSearchResults);
+        }
+      })
+      .withFailureHandler(function(error) {
+        globalSearchLoading = false;
+        globalSearchResults = [];
+        content.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-title">Global Search Failed</div>
+            <p style="font-size:12px;color:#80868b;margin-top:8px;">${(error && error.message) ? error.message : error}</p>
+          </div>
+        `;
+      })
+      .searchIndexedDocsByTags(queryTags, 'AND');
+  }
+
+  function renderGlobalSearchResults_(queryTags, rows) {
+    const content = document.getElementById('content');
+    const queryLabel = formatTagList_(queryTags);
+    const queryChips = queryTags.map(function(tag) {
+      return '<span class="global-query-chip">#' + escapeHtml_(tag) + '</span>';
+    }).join('');
+
+    if (!rows.length) {
+      content.innerHTML = `
+        <div class="empty-state">
+          <div class="global-empty-icon">🔍</div>
+          <div class="empty-title">No Indexed Matches</div>
+          <p class="global-empty-copy">No documents found for <strong>${queryLabel}</strong></p>
+        </div>
+      `;
+      return;
+    }
+
+    const sortedRows = rows.slice().sort(function(a, b) {
+      const countDiff = Number(b.tagCountInDoc || 0) - Number(a.tagCountInDoc || 0);
+      if (countDiff !== 0) {
+        return countDiff;
+      }
+      return String(a.docTitle || '').localeCompare(String(b.docTitle || ''));
+    });
+
+    let html = `
+      <div class="global-results-wrap">
+        <div class="global-results-header">
+          <div class="global-query-chip-list">${queryChips}</div>
+          <span class="global-result-count">${sortedRows.length} documents</span>
+        </div>
+        <div class="global-results-list">
+    `;
+    sortedRows.forEach(function(row) {
+      const matchedTags = Array.isArray(row.tags) && row.tags.length
+        ? row.tags
+        : Object.keys(row.matchedTags || {});
+      const matchedTagChips = matchedTags.length
+        ? matchedTags.map(function(tag) {
+            return '<span class="global-match-chip">#' + escapeHtml_(tag) + '</span>';
+          }).join('')
+        : '<span class="global-match-chip global-match-chip-empty">(none)</span>';
+
       html += `
-        <div class="tag-item" style="padding: 10px 12px; border-radius: 8px; margin-bottom: 6px; background: #f8f9fa;" onclick="handleTagClick('${tag.name}', event, ${tag.totalCount})">
-          <div class="tag-main">
-            <div class="tag-dot" style="background-color:${tagColor}; flex-shrink: 0;"></div>
-            <div style="flex: 1;">
-              <span class="tag-name">#${tag.name}</span>
-              <div style="font-size:11px;color:#5f6368;margin-top:2px;">Used in this document</div>
+        <div class="global-result-card" onclick="event.stopPropagation()">
+          <div class="global-result-main">
+            <div class="global-result-content">
+              <div class="global-result-top">
+                <div class="global-result-title" title="${escapeHtml_(row.docTitle || '(Untitled document)')}">${escapeHtml_(row.docTitle || '(Untitled document)')}</div>
+                <span class="tag-count-badge global-count-badge">${Number(row.tagCountInDoc || 0)} hits</span>
+              </div>
+              <div class="global-result-tags">${matchedTagChips}</div>
+              <div class="global-result-footer">
+                <span class="global-result-meta">Last indexed: ${escapeHtml_(row.lastSeenAt || '')}</span>
+                <a class="global-result-link" href="${escapeHtml_(row.docUrl || '#')}" target="_blank" rel="noopener noreferrer">Open</a>
+              </div>
             </div>
-            <span class="tag-count-badge">${tag.totalCount}</span>
           </div>
         </div>
-        ${tag.totalCount > 1 && expandedOccurrences[tag.name] ? renderOccurrencesList(tag.name, tag.totalCount, tagColor) : ''}
       `;
     });
-    
-    html += '</div>';
+    html += '</div></div>';
     content.innerHTML = html;
+  }
+
+  function normalizeTagQuery_(raw) {
+    return String(raw || '').replace(/^#/, '').trim().toLowerCase();
+  }
+
+  function getGlobalActiveTokenQuery_(raw) {
+    const input = String(raw || '');
+    const parts = input.split(/([\s,]+)/);
+    const lastToken = parts.length ? parts[parts.length - 1] : input;
+    return normalizeTagQuery_(lastToken);
+  }
+
+  function applyGlobalSuggestion_(rawInput, suggestedTag) {
+    const input = String(rawInput || '');
+    const parts = input.split(/([\s,]+)/);
+    const replacement = '#' + String(suggestedTag || '').trim();
+
+    if (!parts.length) {
+      return replacement;
+    }
+
+    // If last segment is a separator, append a new tag token.
+    if (/^[\s,]+$/.test(parts[parts.length - 1])) {
+      parts.push(replacement);
+      return parts.join('');
+    }
+
+    // Replace the active trailing token only.
+    parts[parts.length - 1] = replacement;
+    return parts.join('');
+  }
+
+  function parseTagQuery_(raw) {
+    const parts = String(raw || '')
+      .split(/[\s,]+/)
+      .map(part => normalizeTagQuery_(part))
+      .filter(Boolean);
+    return Array.from(new Set(parts));
+  }
+
+  function formatTagList_(tags) {
+    return tags.map(tag => '#' + tag).join(' ');
+  }
+
+  function formatMatchedTags_(tags) {
+    if (!Array.isArray(tags) || !tags.length) {
+      return '(none)';
+    }
+    return tags.map(tag => '#' + tag).join(', ');
+  }
+
+  function ensureGlobalAutocompleteCatalog_() {
+    if (globalAutocompleteLoaded || globalAutocompleteLoading) {
+      return;
+    }
+
+    globalAutocompleteLoading = true;
+    google.script.run
+      .withSuccessHandler(function(matches) {
+        globalAutocompleteCatalog = Array.isArray(matches) ? matches : [];
+        globalAutocompleteLoaded = true;
+        globalAutocompleteLoading = false;
+      })
+      .withFailureHandler(function(error) {
+        console.error('Error loading global autocomplete catalog:', error);
+        globalAutocompleteCatalog = [];
+        globalAutocompleteLoaded = false;
+        globalAutocompleteLoading = false;
+      })
+      .getIndexedTagSuggestions('', 10000);
+  }
+
+  function escapeHtml_(value) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   function toggleDateGroup(dateKey) {
@@ -665,6 +905,12 @@
         tab.classList.add('active');
       }
     });
+    if (filter === 'global') {
+      globalSubmittedQuery = '';
+      globalSearchTerm = '';
+      globalSearchResults = null;
+      ensureGlobalAutocompleteCatalog_();
+    }
     if (allTags) renderTags(allTags);
   }
 
