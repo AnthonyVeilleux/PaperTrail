@@ -811,34 +811,25 @@
     const fullPath = node.fullPath;
     const hasChildren = Object.keys(node.children).length > 0;
     const isIntermediate = node.isIntermediate && !tag; // Intermediate if no tag but has children
-    const isExpanded = expandedTags && expandedTags[fullPath];
+    const isGroupNode = isIntermediate && hasChildren;
+    const hasExplicitExpandState = expandedTags && Object.prototype.hasOwnProperty.call(expandedTags, fullPath);
+    const isExpanded = isGroupNode
+      ? (hasExplicitExpandState ? !!expandedTags[fullPath] : true)
+      : (expandedTags && !!expandedTags[fullPath]);
     
-    // For intermediate nodes without a tag, they should only show if expanded
-    // For actual tags, show the expand button only if they have children
-    const shouldShowExpandButton = hasChildren && tag;
-    const tagColor = tag ? tag.color : '#80868b';
+    // Group nodes and real parent tags should both be expandable.
+    const shouldShowExpandButton = hasChildren && (tag || isGroupNode);
+    const tagColor = tag ? tag.color : '#9aa0a6';
     const tagCount = tag ? tag.count : 0;
-    
-    // If this is an intermediate node (no tag), don't render it as a node
-    // Just render its children directly
-    if (isIntermediate && !tag && hasChildren) {
-      let html = '<div class="nested-children">';
-      Object.keys(node.children).sort().forEach(childKey => {
-        html += renderTagNode(node.children[childKey], childKey, depth, projectId);
-      });
-      html += '</div>';
-      return html;
-    }
-    
-    const occurrenceCount = tagCount || getBookmarkCount(fullPath);
+    const occurrenceCount = tag ? (tagCount || getBookmarkCount(fullPath)) : 0;
     const showOccurrences = occurrenceCount > 1 && expandedOccurrences[fullPath];
 
     let html = `
-      <div class="tag-item ${hasChildren ? 'parent-tag' : ''}" data-depth="${depth}" onclick="handleTagClick('${fullPath}', event, ${occurrenceCount})">
+      <div class="tag-item ${hasChildren ? 'parent-tag' : ''} ${isGroupNode ? 'tag-group-node' : ''}" data-depth="${depth}" onclick="${isGroupNode ? `toggleNestedTag('${fullPath}', event)` : `handleTagClick('${fullPath}', event, ${occurrenceCount})`}">
         <div class="tag-main">
           ${shouldShowExpandButton ? `<span class="tag-expand-icon ${isExpanded ? 'expanded' : ''}" onclick="toggleNestedTag('${fullPath}', event)" title="Toggle children">▶</span>` : '<span style="width:20px;"></span>'}
           <div class="tag-dot" style="background-color:${tagColor}; flex-shrink: 0;"></div>
-          <span class="tag-name">#${key}</span>
+          <span class="tag-name">#${fullPath}</span>
           ${tagCount > 0 ? `<span class="tag-count-badge">${tagCount}</span>` : ''}
         </div>
       </div>

@@ -589,6 +589,21 @@ function jumpToTagBookmark(tagName, occurrenceIndex) {
  */
 function getTagOccurrences(tagName, maxChars) {
   try {
+    function isMeaningfulSnippetText_(value) {
+      var normalized = String(value || '').replace(/\s+/g, ' ').trim();
+      if (!normalized) {
+        return false;
+      }
+
+      // Treat lines made only of hashtags/separators as non-meaningful preview text.
+      var residual = normalized
+        .replace(/#[a-zA-Z0-9_.-]+/g, '')
+        .replace(/[\s,;|()\[\]{}\-]+/g, '')
+        .trim();
+
+      return residual.length > 0;
+    }
+
     var doc = DocumentApp.getActiveDocument();
     var body = doc.getBody();
     var pattern = '#' + escapeTagForRegex(tagName);
@@ -611,6 +626,9 @@ function getTagOccurrences(tagName, maxChars) {
             var end = Math.min(start + limit, text.length);
             var rawSnippet = text.substring(start, end);
             snippet = rawSnippet.replace(/\s+/g, ' ').trim();
+            if (!isMeaningfulSnippetText_(snippet)) {
+              snippet = '';
+            }
           }
 
           if (!snippet) {
@@ -623,7 +641,7 @@ function getTagOccurrences(tagName, maxChars) {
                   var sibling = body.getChild(i);
                   if (sibling.getType && sibling.getType() === DocumentApp.ElementType.PARAGRAPH) {
                     var siblingText = sibling.asParagraph().getText().replace(/\s+/g, ' ').trim();
-                    if (siblingText) {
+                    if (isMeaningfulSnippetText_(siblingText)) {
                       snippet = siblingText.substring(0, limit);
                       break;
                     }
@@ -634,7 +652,7 @@ function getTagOccurrences(tagName, maxChars) {
           }
 
           if (!snippet) {
-            snippet = '(no text on next line)';
+            snippet = 'No preview text available';
           }
           snippets.push({
             index: snippets.length,
