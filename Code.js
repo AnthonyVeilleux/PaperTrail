@@ -5,22 +5,36 @@
 // Allows functions to be seen by test files when running in Node environment
 if (typeof module !== 'undefined') {
   module.exports = {
+    onInstall: onInstall,
+    onOpen: onOpen,
     hideSidebar: hideSidebar,
     showSidebar: showSidebar,
   };
 }
+// Add-on install hook required by Google Docs Editor Add-ons.
+function onInstall(e) {
+  onOpen(e);
+}
+
 // Install menu when document opens
-function onOpen() {
+function onOpen(e) {
   var ui = DocumentApp.getUi();
   var scopeMenu = ui.createMenu('Index Scope')
+    .addItem('Manage Scope', 'showIndexScopeManagerDialog')
+    .addSeparator()
     .addItem('Add Folder ID', 'promptAddIndexFolder')
+    .addItem('Add Parent Folder Of Current Doc', 'addCurrentDocumentParentFolderToIndexScope')
     .addItem('Add Current Document', 'addCurrentDocumentToIndexScope')
     .addItem('Add Document ID', 'promptAddIndexDocument');
 
-  ui.createMenu('PaperTrail')
+  var paperTrailMenu = (typeof ui.createAddonMenu === 'function')
+    ? ui.createAddonMenu()
+    : ui.createMenu('PaperTrail');
+
+  paperTrailMenu
     .addItem('Open Tag Sidebar', 'showSidebar')
     .addItem('Refresh Tags', 'refreshAllTags')
-    .addItem('Update Database', 'runBackFill')
+    .addItem('Sync Indexed Docs', 'runBackFill')
     .addSubMenu(scopeMenu)
     .addSeparator()
     .addItem('Export Tagged Notes', 'showExportTaggedNotesDialog')
@@ -59,6 +73,16 @@ function include(filename) {
 // Hide/close the sidebar (called via Ctrl+K from document or sidebar)
 function hideSidebar() {
   DocumentApp.getUi().clear();
+}
+
+/**
+ * Open dialog to manage index scope using document/folder URLs or IDs.
+ */
+function showIndexScopeManagerDialog() {
+  var html = HtmlService.createHtmlOutputFromFile('ScopeManager')
+    .setWidth(640)
+    .setHeight(560);
+  DocumentApp.getUi().showModalDialog(html, 'Manage Index Scope');
 }
 
 /**
@@ -101,20 +125,20 @@ function runBackFill() {
   try {
     var result = backfillContentFolderToIndex();
     var message =
-      'Processed: ' + result.processed + '\n' +
+      'Scanned: ' + result.processed + '\n' +
       'Updated: ' + result.updated + '\n' +
       'Skipped (unchanged): ' + result.skippedUnchanged + '\n' +
       'Failed: ' + result.failed + '\n' +
       'Duration: ' + result.durationMs + ' ms';
 
     if (result.failed > 0) {
-      ui.alert('BackFill Completed With Errors', message, ui.ButtonSet.OK);
+      ui.alert('Index Sync Completed With Errors', message, ui.ButtonSet.OK);
     } else {
-      ui.alert('BackFill Completed', message, ui.ButtonSet.OK);
+      ui.alert('Index Sync Completed', message, ui.ButtonSet.OK);
     }
   } catch (e) {
     Logger.log('BackFill error: ' + e.toString());
-    ui.alert('BackFill Failed', e.toString(), ui.ButtonSet.OK);
+    ui.alert('Index Sync Failed', e.toString(), ui.ButtonSet.OK);
   }
 }
 
@@ -123,13 +147,13 @@ function runBackFill() {
  */
 function promptAddIndexFolder() {
   var ui = DocumentApp.getUi();
-  var response = ui.prompt('Add Folder To Index Scope', 'Paste Google Drive folder ID:', ui.ButtonSet.OK_CANCEL);
+  var response = ui.prompt('Add Folder To Index Scope', 'Paste Google Drive folder URL or ID:', ui.ButtonSet.OK_CANCEL);
   if (response.getSelectedButton() !== ui.Button.OK) {
     return;
   }
 
   try {
-    var result = addIndexContentFolderId(response.getResponseText());
+    var result = addIndexContentFolder(response.getResponseText());
     ui.alert('Folder Added', 'Configured folders: ' + result.folderIds.length, ui.ButtonSet.OK);
   } catch (e) {
     ui.alert('Failed To Add Folder', e.toString(), ui.ButtonSet.OK);
@@ -142,7 +166,7 @@ function promptAddIndexFolder() {
 function addCurrentDocumentToIndexScope() {
   var ui = DocumentApp.getUi();
   try {
-    var result = addIndexExplicitDocId(DocumentApp.getActiveDocument().getId());
+    var result = addCurrentDocumentToIndexScopeForUi();
     ui.alert('Current Document Added', 'Configured explicit documents: ' + result.docIds.length, ui.ButtonSet.OK);
   } catch (e) {
     ui.alert('Failed To Add Current Document', e.toString(), ui.ButtonSet.OK);
@@ -150,17 +174,63 @@ function addCurrentDocumentToIndexScope() {
 }
 
 /**
+ * Add current active document to explicit index scope and return data for non-alert UI callers.
+ */
+function addCurrentDocumentToIndexScopeForUi() {
+  var doc = DocumentApp.getActiveDocument();
+  var result = addIndexExplicitDocId(doc.getId());
+  result.docId = doc.getId();
+  result.docName = doc.getName();
+  return result;
+}
+
+/**
+ * Add the parent folder of the current active document to index scope.
+ */
+function addCurrentDocumentParentFolderToIndexScope() {
+  var ui = DocumentApp.getUi();
+  try {
+    var result = addCurrentDocumentParentFolderToIndexScopeForUi();
+    ui.alert(
+      'Parent Folder Added',
+      'Added "' + result.folderName + '". Configured folders: ' + result.folderIds.length,
+      ui.ButtonSet.OK
+    );
+  } catch (e) {
+    ui.alert('Failed To Add Parent Folder', e.toString(), ui.ButtonSet.OK);
+  }
+}
+
+/**
+ * Add current document parent folder and return data for non-alert UI callers.
+ */
+function addCurrentDocumentParentFolderToIndexScopeForUi() {
+  var docId = DocumentApp.getActiveDocument().getId();
+  var parents = DriveApp.getFileById(docId).getParents();
+
+  if (!parents.hasNext()) {
+    throw new Error('Current document has no parent folder.');
+  }
+
+  var parentFolder = parents.next();
+  var result = addIndexContentFolderId(parentFolder.getId());
+  result.folderName = parentFolder.getName();
+  result.folderId = parentFolder.getId();
+  return result;
+}
+
+/**
  * Prompt user for document ID and add it to explicit index scope.
  */
 function promptAddIndexDocument() {
   var ui = DocumentApp.getUi();
-  var response = ui.prompt('Add Document To Index Scope', 'Paste Google Doc ID:', ui.ButtonSet.OK_CANCEL);
+  var response = ui.prompt('Add Document To Index Scope', 'Paste Google Doc URL or ID:', ui.ButtonSet.OK_CANCEL);
   if (response.getSelectedButton() !== ui.Button.OK) {
     return;
   }
 
   try {
-    var result = addIndexExplicitDocId(response.getResponseText());
+    var result = addIndexExplicitDocument(response.getResponseText());
     ui.alert('Document Added', 'Configured explicit documents: ' + result.docIds.length, ui.ButtonSet.OK);
   } catch (e) {
     ui.alert('Failed To Add Document', e.toString(), ui.ButtonSet.OK);

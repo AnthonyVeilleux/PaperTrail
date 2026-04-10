@@ -3,6 +3,14 @@
   "dependencies": {},
   "exceptionLogging": "STACKDRIVER",
   "runtimeVersion": "V8",
+  "addOns": {
+    "common": {
+      "name": "PaperTrail",
+      "logoUrl": "https://www.gstatic.com/images/branding/product/1x/drive_2020q4_48dp.png",
+      "useLocaleFromApp": true
+    },
+    "docs": {}
+  },
   "oauthScopes": [
     "https://www.googleapis.com/auth/documents",
     "https://www.googleapis.com/auth/script.scriptapp",

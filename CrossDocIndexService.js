@@ -6,6 +6,7 @@ var INDEX_DB_PROPERTY_KEY = 'PAPERTRAIL_INDEX_SHEET_ID';
 var CONTENT_FOLDER_PROPERTY_KEY = 'PAPERTRAIL_CONTENT_FOLDER_ID';
 var CONTENT_FOLDERS_PROPERTY_KEY = 'PAPERTRAIL_CONTENT_FOLDER_IDS';
 var EXPLICIT_DOC_IDS_PROPERTY_KEY = 'PAPERTRAIL_EXPLICIT_DOC_IDS';
+var INDEX_SPREADSHEET_NAME = 'PaperTrail_Index';
 var INDEX_SHEET_NAME = 'TagIndex';
 var INDEX_HEADERS = [
 	'tag',
@@ -35,7 +36,10 @@ function getOrCreateIndexSheet_() {
 	}
 
 	if (!spreadsheet) {
-		spreadsheet = SpreadsheetApp.create('PaperTrail_Index');
+		spreadsheet = findExistingIndexSpreadsheet_();
+		if (!spreadsheet) {
+			spreadsheet = SpreadsheetApp.create(INDEX_SPREADSHEET_NAME);
+		}
 		scriptProps.setProperty(INDEX_DB_PROPERTY_KEY, spreadsheet.getId());
 	}
 
@@ -50,6 +54,25 @@ function getOrCreateIndexSheet_() {
 	}
 
 	return sheet;
+}
+
+/**
+ * Reuse an existing index spreadsheet by name when script properties are not initialized.
+ */
+function findExistingIndexSpreadsheet_() {
+	try {
+		var files = DriveApp.searchFiles(
+			"title = '" + INDEX_SPREADSHEET_NAME + "' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false"
+		);
+
+		if (files.hasNext()) {
+			return SpreadsheetApp.openById(files.next().getId());
+		}
+	} catch (e) {
+		Logger.log('Existing index spreadsheet search failed: ' + e.toString());
+	}
+
+	return null;
 }
 
 /**
@@ -318,7 +341,7 @@ function getIndexContentFolderIds() {
  * Add a folder ID to the configured content folder list.
  */
 function addIndexContentFolderId(folderId) {
-	var normalized = String(folderId || '').trim();
+	var normalized = normalizeDriveFolderId_(folderId);
 	if (!normalized) {
 		throw new Error('Folder ID is required.');
 	}
@@ -356,7 +379,7 @@ function getIndexExplicitDocIds() {
  * Add an explicit document ID to index scope.
  */
 function addIndexExplicitDocId(docId) {
-	var normalized = String(docId || '').trim();
+	var normalized = normalizeGoogleDocId_(docId);
 	if (!normalized) {
 		throw new Error('Document ID is required.');
 	}
@@ -368,6 +391,121 @@ function addIndexExplicitDocId(docId) {
 
 	PropertiesService.getScriptProperties().setProperty(EXPLICIT_DOC_IDS_PROPERTY_KEY, JSON.stringify(list));
 	return { success: true, docIds: list };
+}
+
+/**
+ * Remove a folder ID from the configured content folder list.
+ */
+function removeIndexContentFolderId(folderId) {
+	var normalized = normalizeDriveFolderId_(folderId);
+	if (!normalized) {
+		throw new Error('Folder ID is required.');
+	}
+
+	var list = getIndexContentFolderIds().filter(function(id) {
+		return id !== normalized;
+	});
+
+	var scriptProps = PropertiesService.getScriptProperties();
+	if (list.length) {
+		scriptProps.setProperty(CONTENT_FOLDERS_PROPERTY_KEY, JSON.stringify(list));
+		scriptProps.setProperty(CONTENT_FOLDER_PROPERTY_KEY, list[0]);
+	} else {
+		scriptProps.deleteProperty(CONTENT_FOLDERS_PROPERTY_KEY);
+		scriptProps.deleteProperty(CONTENT_FOLDER_PROPERTY_KEY);
+	}
+
+	return { success: true, folderIds: list };
+}
+
+/**
+ * Remove an explicit document ID from index scope.
+ */
+function removeIndexExplicitDocId(docId) {
+	var normalized = normalizeGoogleDocId_(docId);
+	if (!normalized) {
+		throw new Error('Document ID is required.');
+	}
+
+	var list = getIndexExplicitDocIds().filter(function(id) {
+		return id !== normalized;
+	});
+
+	var scriptProps = PropertiesService.getScriptProperties();
+	if (list.length) {
+		scriptProps.setProperty(EXPLICIT_DOC_IDS_PROPERTY_KEY, JSON.stringify(list));
+	} else {
+		scriptProps.deleteProperty(EXPLICIT_DOC_IDS_PROPERTY_KEY);
+	}
+
+	return { success: true, docIds: list };
+}
+
+/**
+ * Return display-ready index scope data for UI rendering.
+ */
+function getIndexScopeState() {
+	var folderIds = getIndexContentFolderIds();
+	var explicitDocIds = getIndexExplicitDocIds();
+
+	return {
+		folders: folderIds.map(function(id) {
+			var item = {
+				id: id,
+				type: 'folder',
+				name: id,
+				url: 'https://drive.google.com/drive/folders/' + id,
+				valid: true
+			};
+
+			try {
+				var folder = DriveApp.getFolderById(id);
+				item.name = folder.getName();
+			} catch (e) {
+				item.valid = false;
+				item.error = e.toString();
+			}
+
+			return item;
+		}),
+		documents: explicitDocIds.map(function(id) {
+			var item = {
+				id: id,
+				type: 'doc',
+				name: id,
+				url: 'https://docs.google.com/document/d/' + id + '/edit',
+				valid: true
+			};
+
+			try {
+				var doc = DocumentApp.openById(id);
+				item.name = doc.getName();
+			} catch (e) {
+				item.valid = false;
+				item.error = e.toString();
+			}
+
+			return item;
+		}),
+		counts: {
+			folders: folderIds.length,
+			documents: explicitDocIds.length
+		}
+	};
+}
+
+/**
+ * Accept a folder URL or ID and add it to index scope.
+ */
+function addIndexContentFolder(folderInput) {
+	return addIndexContentFolderId(folderInput);
+}
+
+/**
+ * Accept a document URL or ID and add it to explicit index scope.
+ */
+function addIndexExplicitDocument(docInput) {
+	return addIndexExplicitDocId(docInput);
 }
 
 /**
@@ -488,6 +626,38 @@ function dedupeStringList_(list) {
 }
 
 /**
+ * Normalize input that can be either a Drive folder ID or URL.
+ */
+function normalizeDriveFolderId_(input) {
+	return normalizeGoogleResourceId_(input, /\/folders\/([a-zA-Z0-9_-]+)/);
+}
+
+/**
+ * Normalize input that can be either a Google Doc ID or URL.
+ */
+function normalizeGoogleDocId_(input) {
+	return normalizeGoogleResourceId_(input, /\/document\/d\/([a-zA-Z0-9_-]+)/);
+}
+
+/**
+ * Extract and normalize a Google Drive resource ID from a URL or raw ID string.
+ */
+function normalizeGoogleResourceId_(input, urlRegex) {
+	var value = String(input || '').trim();
+	if (!value) {
+		return '';
+	}
+
+	var urlMatch = value.match(urlRegex);
+	if (urlMatch && urlMatch[1]) {
+		return urlMatch[1];
+	}
+
+	var idMatch = value.match(/[a-zA-Z0-9_-]{20,}/);
+	return idMatch ? idMatch[0] : '';
+}
+
+/**
  * Build a lookup map of current indexed text signatures by doc ID.
  */
 function getIndexedSignaturesByDocId_(sheet) {
@@ -509,6 +679,10 @@ function getIndexedSignaturesByDocId_(sheet) {
  */
 function getIndexRows_() {
 	var sheet = getOrCreateIndexSheet_();
-	return sheet.getDataRange().getValues();
+	var lastRow = sheet.getLastRow();
+	if (lastRow <= 0) {
+		return [INDEX_HEADERS.slice()];
+	}
+	return sheet.getRange(1, 1, lastRow, INDEX_HEADERS.length).getValues();
 }
 
