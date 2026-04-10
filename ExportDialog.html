@@ -3,67 +3,166 @@
   <head>
     <base target="_top">
     <style>
-      body{font-family: Arial, sans-serif; padding: 12px; }
-      label{display:block;margin-top:10px;font-weight:600; }
-      select { width: 100%; padding: 8px; margin-top:6px; }
-      button { margin-top: 12px; width: 100%;padding: 10px; cursor: pointer; }
-      .status { margin-top:12px;font-size:13px;}
-      a { word-break:break-all; }
+      body {
+        font-family: Arial, sans-serif;
+        padding: 14px;
+        background: #f8f9fa;
+        color: #202124;
+      }
+
+      .panel {
+        background: #fff;
+        border: 1px solid #dadce0;
+        border-radius: 10px;
+        padding: 12px;
+      }
+
+      .title {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 700;
+      }
+
+      .subtitle {
+        margin: 6px 0 12px;
+        color: #5f6368;
+        font-size: 12px;
+      }
+
+      label {
+        display: block;
+        margin-top: 10px;
+        font-weight: 600;
+        font-size: 12px;
+      }
+
+      select {
+        width: 100%;
+        padding: 9px;
+        margin-top: 6px;
+        border: 1px solid #dadce0;
+        border-radius: 8px;
+        font-size: 13px;
+        background: #fff;
+      }
+
+      button {
+        margin-top: 14px;
+        width: 100%;
+        padding: 10px;
+        border: none;
+        border-radius: 8px;
+        background: #1a73e8;
+        color: #fff;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        opacity: 0.7;
+        cursor: default;
+      }
+
+      .status {
+        margin-top: 12px;
+        font-size: 12px;
+        line-height: 1.4;
+        min-height: 18px;
+      }
+
+      .status.error { color: #a50e0e; }
+      .status.ok { color: #137333; }
+      .status.info { color: #5f6368; }
+
+      a { word-break: break-all; }
     </style>
   </head>
   <body>
-    <h3>Export Tagged Notes</h3>
-    <label for="tag">Tag</label>
-    <select id="tag"></select>
-    <label for="format">Format</label>
-    <select id="format">
-      <option value="DOC">Google Doc</option>
-      <option value="PDF">PDF</option>
-    </select>
-    <div class="status" id="status"></div>
-    <button id='exportButton' onclick="exportNotes()">Export</button>
+    <div class="panel">
+      <h3 class="title">Export Tagged Notes</h3>
+      <p class="subtitle">Export notes for one tag from the current document.</p>
+
+      <label for="tag">Tag</label>
+      <select id="tag"></select>
+
+      <label for="format">Format</label>
+      <select id="format">
+        <option value="DOC">Google Doc</option>
+        <option value="PDF">PDF</option>
+      </select>
+
+      <button id="exportButton" onclick="exportNotes()" disabled>Export Notes</button>
+      <div class="status info" id="status"></div>
+    </div>
 
     <script>
-      function setStatus(msg){//update statuys area in dialog
-        document.getElementById('status').innerHTML =msg;
+      function setStatus(msg, type) {
+        var el = document.getElementById('status');
+        el.innerHTML = msg;
+        el.className = 'status ' + (type || 'info');
       }
-      function loadTags(){//load all avail. tags from doc, populate dropdown
+
+      function setExportDisabled(isDisabled) {
+        document.getElementById('exportButton').disabled = !!isDisabled;
+      }
+
+      function loadTags() {
+        setStatus('Loading tags...', 'info');
+        setExportDisabled(true);
+
         google.script.run
           .withSuccessHandler(function(tags) {
-            const sel =document.getElementById('tag');
-            sel.innerHTML ='';
-            tags.forEach(t=>{
-              const opt =document.createElement('option');
-              opt.value= t;
-              opt.textContent='#' +t;
+            var sel = document.getElementById('tag');
+            sel.innerHTML = '';
+
+            (tags || []).forEach(function(t) {
+              var opt = document.createElement('option');
+              opt.value = t;
+              opt.textContent = '#' + t;
               sel.appendChild(opt);
             });
-            if (tags.length=== 0) setStatus('No tags found in this document.');
+
+            if (!tags || tags.length === 0) {
+              setStatus('No tags found in this document.', 'info');
+              setExportDisabled(true);
+              return;
+            }
+
+            setStatus('Ready to export.', 'info');
+            setExportDisabled(false);
           })
           .withFailureHandler(function(err) {
-            setStatus('Error loading tags: ' +err.message);
+            setStatus('Error loading tags: ' + ((err && err.message) ? err.message : err), 'error');
+            setExportDisabled(true);
           })
           .getTagNamesForExport();
       }
-      function exportNotes() {//export process for selected option
-        const tag =document.getElementById('tag').value;
-        const format= document.getElementById('format').value;
-        document.getElementById('exportButton').style.visibility = 'hidden';
+
+      function exportNotes() {
+        var tag = document.getElementById('tag').value;
+        var format = document.getElementById('format').value;
+
         if (!tag) {
-          setStatus('Select a tag first.');
+          setStatus('Select a tag first.', 'error');
           return;
         }
-        setStatus('Exporting...');
+
+        setExportDisabled(true);
+        setStatus('Exporting...', 'info');
+
         google.script.run
-          .withSuccessHandler(function(result){
-            setStatus('Done! <a href="' +result.url +'" target="_blank">Open exported file</a>');
+          .withSuccessHandler(function(result) {
+            setStatus('Done. <a href="' + result.url + '" target="_blank">Open exported file</a>', 'ok');
+            setExportDisabled(false);
           })
           .withFailureHandler(function(err) {
-            setStatus('Export failed: ' +err.message);
+            setStatus('Export failed: ' + ((err && err.message) ? err.message : err), 'error');
+            setExportDisabled(false);
           })
-          .exportTaggedNotes(tag,format);
+          .exportTaggedNotes(tag, format);
       }
-      loadTags();//load tags immediately on dialog open
+
+      loadTags();
     </script>
   </body>
 </html>
