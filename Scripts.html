@@ -14,10 +14,15 @@
   let globalSearchTerm = '';
   let globalSearchResults = null;
   let globalSearchLoading = false;
+  let globalSearchError = '';
   let globalSubmittedQuery = '';
   let globalAutocompleteCatalog = [];
   let globalAutocompleteLoaded = false;
   let globalAutocompleteLoading = false;
+  let globalSyncLoading = false;
+  let globalSyncMessage = '';
+  let globalSearchRequestId = 0;
+  let globalSearchTimeoutId = null;
 
   const colors = [
     { value: '#1A73E8', name: 'Blue' },
@@ -431,6 +436,7 @@
 
     refreshTimer = setInterval(function () {
       if (isRefreshing) return;
+      if (currentFilter === 'global') return;
       loadTags();
     }, 2000);
   }
@@ -588,13 +594,39 @@
       return;
     }
 
+    if (globalSearchError && globalSearchTerm === queryKey) {
+      content.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-title">Global Search Failed</div>
+          <p style="font-size:12px;color:#80868b;margin-top:8px;">${escapeHtml_(globalSearchError)}</p>
+          <button onclick="retryGlobalSearch_()" style="margin-top:12px;padding:8px 14px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer;">Try Again</button>
+        </div>
+      `;
+      return;
+    }
+
     if (globalSearchTerm === queryKey && Array.isArray(globalSearchResults)) {
       renderGlobalSearchResults_(queryTags, globalSearchResults);
       return;
     }
 
     globalSearchLoading = true;
+    globalSearchError = '';
     globalSearchTerm = queryKey;
+    globalSearchRequestId++;
+    const requestId = globalSearchRequestId;
+
+    if (globalSearchTimeoutId) {
+      clearTimeout(globalSearchTimeoutId);
+    }
+    globalSearchTimeoutId = setTimeout(function() {
+      if (requestId !== globalSearchRequestId || !globalSearchLoading) {
+        return;
+      }
+      globalSearchLoading = false;
+      globalSearchError = 'Search timed out. Try syncing the index, then retry.';
+      refreshCurrentView_();
+    }, 15000);
     content.innerHTML = `
       <div class="loading">
         <div class="spinner"></div>
@@ -604,23 +636,41 @@
 
     google.script.run
       .withSuccessHandler(function(rows) {
+        if (requestId !== globalSearchRequestId) {
+          return;
+        }
+        if (globalSearchTimeoutId) {
+          clearTimeout(globalSearchTimeoutId);
+          globalSearchTimeoutId = null;
+        }
         globalSearchLoading = false;
+        globalSearchError = '';
         globalSearchResults = Array.isArray(rows) ? rows : [];
         if (currentFilter === 'global') {
           renderGlobalSearchResults_(queryTags, globalSearchResults);
         }
       })
       .withFailureHandler(function(error) {
+        if (requestId !== globalSearchRequestId) {
+          return;
+        }
+        if (globalSearchTimeoutId) {
+          clearTimeout(globalSearchTimeoutId);
+          globalSearchTimeoutId = null;
+        }
         globalSearchLoading = false;
         globalSearchResults = [];
-        content.innerHTML = `
-          <div class="empty-state">
-            <div class="empty-title">Global Search Failed</div>
-            <p style="font-size:12px;color:#80868b;margin-top:8px;">${(error && error.message) ? error.message : error}</p>
-          </div>
-        `;
+        globalSearchError = (error && error.message) ? error.message : String(error);
+        refreshCurrentView_();
       })
       .searchIndexedDocsByTags(queryTags, 'AND');
+  }
+
+  function retryGlobalSearch_() {
+    globalSearchError = '';
+    globalSearchTerm = '';
+    globalSearchResults = null;
+    renderGlobalView();
   }
 
   function renderGlobalSearchResults_(queryTags, rows) {
@@ -737,6 +787,62 @@
       return '(none)';
     }
     return tags.map(tag => '#' + tag).join(', ');
+  }
+
+  function getGlobalSyncButtonHtml_() {
+    const label = globalSyncLoading ? '⏳' : '↻';
+    const disabled = globalSyncLoading ? 'disabled' : '';
+    const titleText = globalSyncMessage || (globalSyncLoading ? 'Syncing index...' : 'Sync index');
+    const title = ' title="' + escapeHtml_(titleText) + '"';
+    return '<button class="global-search-sync-btn" aria-label="Sync index" onclick="syncGlobalIndexFromSidebar_(event)" ' + disabled + title + '>' + label + '</button>';
+  }
+
+  function updateGlobalHeaderAction_() {
+    const container = document.getElementById('globalSearchAction');
+    if (!container) {
+      return;
+    }
+    if (currentFilter !== 'global') {
+      container.innerHTML = '';
+      container.classList.remove('show');
+      return;
+    }
+    container.innerHTML = getGlobalSyncButtonHtml_();
+    container.classList.add('show');
+  }
+
+  function syncGlobalIndexFromSidebar_(event) {
+    if (event) {
+      event.stopPropagation();
+    }
+    if (globalSyncLoading) {
+      return;
+    }
+
+    globalSyncLoading = true;
+    globalSyncMessage = 'Syncing...';
+    updateGlobalHeaderAction_();
+    refreshCurrentView_();
+
+    google.script.run
+      .withSuccessHandler(function(result) {
+        globalSyncLoading = false;
+        globalAutocompleteLoaded = false;
+        globalAutocompleteCatalog = [];
+        ensureGlobalAutocompleteCatalog_();
+        globalSearchTerm = '';
+        globalSearchResults = null;
+        globalSyncMessage = 'Synced: ' + result.updated + ' updated';
+        updateGlobalHeaderAction_();
+        refreshCurrentView_();
+      })
+      .withFailureHandler(function(error) {
+        globalSyncLoading = false;
+        globalSyncMessage = 'Sync failed';
+        updateGlobalHeaderAction_();
+        refreshCurrentView_();
+      })
+      .backfillContentFolderToIndex();
   }
 
   function ensureGlobalAutocompleteCatalog_() {
@@ -955,6 +1061,7 @@
       globalSearchResults = null;
       ensureGlobalAutocompleteCatalog_();
     }
+    updateGlobalHeaderAction_();
     if (allTags) renderTags(allTags);
   }
 
