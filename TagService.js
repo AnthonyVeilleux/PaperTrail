@@ -124,11 +124,9 @@ function parseInlineMonthDay(rawDate) {
   }
 }
 
-/**
- * Extract dated tag occurrences from the document.
- * Supports: #Tag [M/D]
- * Date must appear immediately after the tag, with optional spaces.
- */
+ //extract dated tag occurrences from the document.
+ // #Tag [M/D]
+ //date must appear immediately after the tag
 function extractDatedTagOccurrencesFromDocument(maxSnippetChars) {
   try {
     var doc = DocumentApp.getActiveDocument();
@@ -138,9 +136,8 @@ function extractDatedTagOccurrencesFromDocument(maxSnippetChars) {
 
     var occurrences = [];
 
-    // Matches:
-    // #Note [4/11]
-    // #Parent.Child [12/3]
+    //#Note [4/11]
+    //#Parent.Child [12/3]
     var datedTagRegex = /#([a-zA-Z0-9_.-]+)\s*\[(\d{1,2}\/\d{1,2})\]/g;
     var match;
 
@@ -150,13 +147,13 @@ function extractDatedTagOccurrencesFromDocument(maxSnippetChars) {
       var parsedDate = parseInlineMonthDay(rawDate);
 
       if (!parsedDate) {
-        continue; // fail softly: ignore invalid date for recents
+        continue; //soft fail
       }
 
       var matchStart = match.index;
       var matchEnd = datedTagRegex.lastIndex;
 
-      // Grab snippet from the text after the matched tag/date until newline
+      //grab snippet
       var newlineIndex = text.indexOf('\n', matchEnd);
       var snippet = '';
 
@@ -167,7 +164,7 @@ function extractDatedTagOccurrencesFromDocument(maxSnippetChars) {
       }
 
       if (!snippet) {
-        // fallback: try next line
+        //ty next line
         var nextLineStart = newlineIndex === -1 ? -1 : newlineIndex + 1;
         if (nextLineStart > -1 && nextLineStart < text.length) {
           var nextLineEnd = text.indexOf('\n', nextLineStart);
