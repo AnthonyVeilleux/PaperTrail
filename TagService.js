@@ -70,7 +70,133 @@ function extractHashtagsFromDocument() {
     return { tags: {}, hierarchy: {}, textSignature: '' };
   }
 }
+/**
+ * Parse an inline date in [M/D] format.
+ * Returns normalized info or null if invalid.
+ */
+function parseInlineMonthDay(rawDate) {
+  try {
+    if (!rawDate) return null;
 
+    var match = rawDate.match(/^(\d{1,2})\/(\d{1,2})$/);
+    if (!match) return null;
+
+    var month = parseInt(match[1], 10);
+    var day = parseInt(match[2], 10);
+
+    if (month < 1 || month > 12) return null;
+    if (day < 1 || day > 31) return null;
+
+    var now = new Date();
+    var year = now.getFullYear();
+
+    // Build a test date and verify it didn't roll over
+    var parsed = new Date(year, month - 1, day);
+    if (
+      parsed.getFullYear() !== year ||
+      parsed.getMonth() !== month - 1 ||
+      parsed.getDate() !== day
+    ) {
+      return null;
+    }
+
+    var isoDate =
+      year +
+      '-' +
+      ('0' + month).slice(-2) +
+      '-' +
+      ('0' + day).slice(-2);
+
+    return {
+      rawDate: rawDate,
+      month: month,
+      day: day,
+      year: year,
+      isoDate: isoDate
+    };
+  } catch (e) {
+    Logger.log('Error parsing inline date: ' + e.toString());
+    return null;
+  }
+}
+
+/**
+ * Extract dated tag occurrences from the document.
+ * Supports: #Tag [M/D]
+ * Date must appear immediately after the tag, with optional spaces.
+ */
+function extractDatedTagOccurrencesFromDocument(maxSnippetChars) {
+  try {
+    var doc = DocumentApp.getActiveDocument();
+    var body = doc.getBody();
+    var text = body.getText();
+    var limit = typeof maxSnippetChars === 'number' ? maxSnippetChars : 80;
+
+    var occurrences = [];
+
+    // Matches:
+    // #Note [4/11]
+    // #Parent.Child [12/3]
+    var datedTagRegex = /#([a-zA-Z0-9_.-]+)\s*\[(\d{1,2}\/\d{1,2})\]/g;
+    var match;
+
+    while ((match = datedTagRegex.exec(text)) !== null) {
+      var tagName = match[1];
+      var rawDate = match[2];
+      var parsedDate = parseInlineMonthDay(rawDate);
+
+      if (!parsedDate) {
+        continue; // fail softly: ignore invalid date for recents
+      }
+
+      var matchStart = match.index;
+      var matchEnd = datedTagRegex.lastIndex;
+
+      // Grab snippet from the text after the matched tag/date until newline
+      var newlineIndex = text.indexOf('\n', matchEnd);
+      var snippet = '';
+
+      if (newlineIndex !== -1) {
+        snippet = text.substring(matchEnd, newlineIndex).replace(/\s+/g, ' ').trim();
+      } else {
+        snippet = text.substring(matchEnd).replace(/\s+/g, ' ').trim();
+      }
+
+      if (!snippet) {
+        // fallback: try next line
+        var nextLineStart = newlineIndex === -1 ? -1 : newlineIndex + 1;
+        if (nextLineStart > -1 && nextLineStart < text.length) {
+          var nextLineEnd = text.indexOf('\n', nextLineStart);
+          if (nextLineEnd === -1) nextLineEnd = text.length;
+          snippet = text.substring(nextLineStart, nextLineEnd).replace(/\s+/g, ' ').trim();
+        }
+      }
+
+      if (!snippet) {
+        snippet = '(no text on next line)';
+      }
+
+      if (snippet.length > limit) {
+        snippet = snippet.substring(0, limit).trim() + '...';
+      }
+
+      occurrences.push({
+        tag: tagName,
+        rawDate: parsedDate.rawDate,
+        month: parsedDate.month,
+        day: parsedDate.day,
+        year: parsedDate.year,
+        isoDate: parsedDate.isoDate,
+        snippet: snippet
+      });
+    }
+
+    return occurrences;
+  } catch (e) {
+    Logger.log('Error extracting dated tag occurrences: ' + e.toString());
+    return [];
+  }
+}
 /**
  * Get all tags with metadata
  */
@@ -85,7 +211,7 @@ function getAllTags() {
     // Extract current hashtags from document
     var documentTags = extractHashtagsFromDocument();
     Logger.log('Document tags: ' + JSON.stringify(documentTags));
-
+    var recentOccurrences = extractDatedTagOccurrencesFromDocument(80);
     try {
       ensureTagBookmarks(documentTags.tags || {});
     } catch (e) {
@@ -171,7 +297,8 @@ function getAllTags() {
       globalTags: globalTags,
       documentTags: documentTags,
       hierarchy: documentTags.hierarchy || {},
-      bookmarkCounts: bookmarkCounts
+      bookmarkCounts: bookmarkCounts,
+      recentOccurences: recentOccurrences
     };
     
     // Establish nested tag relationships
