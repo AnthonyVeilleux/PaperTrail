@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      margin: 0;
+      padding: 16px;
+      font-family: Arial, sans-serif;
+      color: #202124;
+      background: #f8f9fa;
+    }
+
+    .header {
+      margin-bottom: 14px;
+    }
+
+    .subtitle {
+      margin: 0;
+      font-size: 13px;
+      color: #5f6368;
+    }
+
+    .explain {
+      margin-top: 10px;
+      padding: 10px;
+      border: 1px solid #dadce0;
+      border-radius: 8px;
+      background: #fff;
+      font-size: 12px;
+      color: #3c4043;
+      line-height: 1.45;
+    }
+
+    .hint {
+      margin-top: 8px;
+      font-size: 11px;
+      color: #5f6368;
+      line-height: 1.4;
+    }
+
+    .card {
+      background: #fff;
+      border: 1px solid #dadce0;
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+
+    .card h3 {
+      margin: 0 0 10px;
+      font-size: 14px;
+    }
+
+    .row {
+      display: flex;
+      gap: 8px;
+    }
+
+    .row input {
+      flex: 1;
+      padding: 9px 10px;
+      border: 1px solid #dadce0;
+      border-radius: 8px;
+      font-size: 13px;
+    }
+
+    button {
+      border: 0;
+      border-radius: 8px;
+      padding: 9px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      background: #1a73e8;
+      color: #fff;
+    }
+
+    button.secondary {
+      background: #e8f0fe;
+      color: #174ea6;
+    }
+
+    button.remove {
+      background: #fce8e6;
+      color: #a50e0e;
+      padding: 6px 8px;
+      font-size: 12px;
+    }
+
+    .status {
+      min-height: 18px;
+      font-size: 12px;
+      margin-top: 8px;
+    }
+
+    .status.error {
+      color: #a50e0e;
+    }
+
+    .status.ok {
+      color: #137333;
+    }
+
+    .list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 180px;
+      overflow: auto;
+    }
+
+    .list-item {
+      background: #fff;
+      border: 1px solid #dadce0;
+      border-radius: 8px;
+      padding: 10px;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .item-main {
+      min-width: 0;
+    }
+
+    .item-title {
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .item-meta {
+      font-size: 12px;
+      color: #5f6368;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .item-meta a {
+      color: #1a73e8;
+      text-decoration: none;
+    }
+
+    .item-meta a:hover {
+      text-decoration: underline;
+    }
+
+    .item-warn {
+      margin-top: 4px;
+      font-size: 11px;
+      color: #a50e0e;
+    }
+
+    .footer-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 12px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <h3>Include A Folder</h3>
+    <div class="row">
+      <input id="folderInput" placeholder="Paste folder URL or ID">
+      <button onclick="addFolder()">Include Folder</button>
+      <button class="secondary" onclick="addCurrentParentFolder()">Use Current Doc Folder</button>
+    </div>
+    <div class="hint">All Google Docs in that folder become searchable in Global.</div>
+  </div>
+
+  <div class="card">
+    <h3>Include A Single Document</h3>
+    <div class="row">
+      <input id="docInput" placeholder="Paste Google Doc URL or ID">
+      <button onclick="addDoc()">Include Doc</button>
+      <button class="secondary" onclick="addCurrentDoc()">Use Current Doc</button>
+    </div>
+    <div class="hint">Use this when you only want specific docs indexed instead of whole folders.</div>
+  </div>
+
+  <div class="status" id="status"></div>
+
+  <div class="card">
+    <h3>Included Folders <span id="folderCount"></span></h3>
+    <ul id="folderList" class="list"></ul>
+  </div>
+
+  <div class="card">
+    <h3>Included Single Docs <span id="docCount"></span></h3>
+    <ul id="docList" class="list"></ul>
+  </div>
+
+  <div class="footer-actions">
+    <button class="secondary" onclick="runBackfill()">Sync Index Now</button>
+    <button class="secondary" onclick="google.script.host.close()">Close</button>
+  </div>
+
+  <script>
+    function setStatus(message, isError) {
+      var el = document.getElementById('status');
+      el.textContent = message || '';
+      el.className = 'status ' + (isError ? 'error' : 'ok');
+    }
+
+    function escapeHtml(value) {
+      return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function renderList(targetId, items, removeFnName) {
+      var target = document.getElementById(targetId);
+      if (!items.length) {
+        target.innerHTML = '<li class="list-item"><div class="item-main"><div class="item-meta">No items configured.</div></div></li>';
+        return;
+      }
+
+      target.innerHTML = items.map(function(item) {
+        var warning = item.valid ? '' : '<div class="item-warn">Access check failed</div>';
+        return (
+          '<li class="list-item">' +
+            '<div class="item-main">' +
+              '<div class="item-title">' + escapeHtml(item.name) + '</div>' +
+              '<div class="item-meta"><a href="' + escapeHtml(item.url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(item.id) + '</a></div>' +
+              warning +
+            '</div>' +
+            '<button class="remove" onclick="' + removeFnName + '(\'' + escapeHtml(item.id) + '\')">Remove</button>' +
+          '</li>'
+        );
+      }).join('');
+    }
+
+    function refreshScopeState() {
+      google.script.run
+        .withSuccessHandler(function(state) {
+          document.getElementById('folderCount').textContent = '(' + state.counts.folders + ')';
+          document.getElementById('docCount').textContent = '(' + state.counts.documents + ')';
+          renderList('folderList', state.folders, 'removeFolder');
+          renderList('docList', state.documents, 'removeDoc');
+        })
+        .withFailureHandler(function(error) {
+          setStatus('Failed to load scope: ' + error, true);
+        })
+        .getIndexScopeState();
+    }
+
+    function addFolder() {
+      var value = document.getElementById('folderInput').value;
+      google.script.run
+        .withSuccessHandler(function() {
+          document.getElementById('folderInput').value = '';
+          setStatus('Folder included. Click Sync Index Now to update Global search.', false);
+          refreshScopeState();
+        })
+        .withFailureHandler(function(error) {
+          setStatus('Failed to add folder: ' + error, true);
+        })
+        .addIndexContentFolder(value);
+    }
+
+    function addDoc() {
+      var value = document.getElementById('docInput').value;
+      google.script.run
+        .withSuccessHandler(function() {
+          document.getElementById('docInput').value = '';
+          setStatus('Document included. Click Sync Index Now to update Global search.', false);
+          refreshScopeState();
+        })
+        .withFailureHandler(function(error) {
+          setStatus('Failed to add document: ' + error, true);
+        })
+        .addIndexExplicitDocument(value);
+    }
+
+    function addCurrentDoc() {
+      google.script.run
+        .withSuccessHandler(function(result) {
+          var docName = result && result.docName ? result.docName : 'current document';
+          setStatus('Added ' + docName + ' to index scope.', false);
+          refreshScopeState();
+        })
+        .withFailureHandler(function(error) {
+          setStatus('Failed to add current document: ' + error, true);
+        })
+        .addCurrentDocumentToIndexScopeForUi();
+    }
+
+    function addCurrentParentFolder() {
+      google.script.run
+        .withSuccessHandler(function(result) {
+          var folderName = result && result.folderName ? result.folderName : 'parent folder';
+          setStatus('Added ' + folderName + ' to index scope.', false);
+          refreshScopeState();
+        })
+        .withFailureHandler(function(error) {
+          setStatus('Failed to add current document parent folder: ' + error, true);
+        })
+        .addCurrentDocumentParentFolderToIndexScopeForUi();
+    }
+
+    function removeFolder(folderId) {
+      google.script.run
+        .withSuccessHandler(function() {
+          setStatus('Folder removed from index scope.', false);
+          refreshScopeState();
+        })
+        .withFailureHandler(function(error) {
+          setStatus('Failed to remove folder: ' + error, true);
+        })
+        .removeIndexContentFolderId(folderId);
+    }
+
+    function removeDoc(docId) {
+      google.script.run
+        .withSuccessHandler(function() {
+          setStatus('Document removed from index scope.', false);
+          refreshScopeState();
+        })
+        .withFailureHandler(function(error) {
+          setStatus('Failed to remove document: ' + error, true);
+        })
+        .removeIndexExplicitDocId(docId);
+    }
+
+    function runBackfill() {
+      setStatus('Syncing index...', false);
+      google.script.run
+        .withSuccessHandler(function(result) {
+          setStatus('Index sync complete. Updated: ' + result.updated + ', skipped: ' + result.skippedUnchanged + ', failed: ' + result.failed, false);
+        })
+        .withFailureHandler(function(error) {
+          setStatus('Index sync failed: ' + error, true);
+        })
+        .backfillContentFolderToIndex();
+    }
+
+    window.onload = function() {
+      refreshScopeState();
+    };
+  </script>
+</body>
+</html>

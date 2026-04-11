@@ -3,6 +3,57 @@
  */
 
 /**
+ * Extract hashtag counts and hierarchy from plain text.
+ * Supports formats: #SimpleTag, #Parent.Child, #Parent.Child.GrandChild
+ */
+function extractHashtagsFromText_(text) {
+  var safeText = String(text || '');
+  var textSignature = Utilities.base64Encode(
+    Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, safeText)
+  );
+
+  // Matches: #tag, #Parent.Child, #Category.SubCategory.Item
+  var hashtagRegex = /#([a-zA-Z0-9_.-]+)/g;
+  var matches = [];
+  var match;
+
+  while ((match = hashtagRegex.exec(safeText)) !== null) {
+    matches.push(match[1]);
+  }
+
+  if (matches.length === 0) {
+    return { tags: {}, hierarchy: {}, textSignature: textSignature };
+  }
+
+  var tagCounts = {};
+  var hierarchyMap = {};
+
+  matches.forEach(function(tag) {
+    tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+
+    if (tag.indexOf('.') !== -1) {
+      var parts = tag.split('.');
+      for (var i = 0; i < parts.length - 1; i++) {
+        var parent = parts.slice(0, i + 1).join('.');
+        var child = parts.slice(0, i + 2).join('.');
+        if (!hierarchyMap[parent]) {
+          hierarchyMap[parent] = [];
+        }
+        if (hierarchyMap[parent].indexOf(child) === -1) {
+          hierarchyMap[parent].push(child);
+        }
+      }
+    }
+  });
+
+  return {
+    tags: tagCounts,
+    hierarchy: hierarchyMap,
+    textSignature: textSignature
+  };
+}
+
+/**
  * Extract all hashtags from the document (including nested hashtags)
  * Supports formats: #SimpleTag, #Parent.Child, #Parent.Child.GrandChild
  */
@@ -11,60 +62,13 @@ function extractHashtagsFromDocument() {
     var doc = DocumentApp.getActiveDocument();
     var body = doc.getBody();
     var text = body.getText();
-    var textSignature = Utilities.base64Encode(
-      Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, text)
-    );
-    
     Logger.log('Document text length: ' + text.length);
-    
-    // Enhanced regex to find hashtags including nested ones (with dots)
-    // Matches: #tag, #Parent.Child, #Category.SubCategory.Item
-    var hashtagRegex = /#([a-zA-Z0-9_.-]+)/g;
-    var matches = [];
-    var match;
-    
-    while ((match = hashtagRegex.exec(text)) !== null) {
-      matches.push(match[1]);
-    }
-    
-    Logger.log('Found ' + matches.length + ' hashtags');
-    
-    if (matches.length === 0) {
-      return { tags: {}, hierarchy: {}, textSignature: textSignature };
-    }
-    
-    // Count occurrences and organize by hierarchy
-    var tagCounts = {};
-    var hierarchyMap = {}; // Track parent-child relationships
-    
-    matches.forEach(function(tag) {
-      tagCounts[tag] = (tagCounts[tag] || 0) + 1;
-      
-      // Build hierarchy map for nested tags
-      if (tag.indexOf('.') !== -1) {
-        var parts = tag.split('.');
-        // Store parent-child relationship
-        for (var i = 0; i < parts.length - 1; i++) {
-          var parent = parts.slice(0, i + 1).join('.');
-          var child = parts.slice(0, i + 2).join('.');
-          if (!hierarchyMap[parent]) {
-            hierarchyMap[parent] = [];
-          }
-          if (hierarchyMap[parent].indexOf(child) === -1) {
-            hierarchyMap[parent].push(child);
-          }
-        }
-      }
-    });
-    
-    Logger.log('Unique tags: ' + Object.keys(tagCounts).length);
-    Logger.log('Hierarchy map: ' + JSON.stringify(hierarchyMap));
-    
-    return {
-      tags: tagCounts,
-      hierarchy: hierarchyMap,
-      textSignature: textSignature
-    };
+
+    var parsed = extractHashtagsFromText_(text);
+    Logger.log('Found ' + Object.keys(parsed.tags || {}).length + ' unique hashtags');
+    Logger.log('Hierarchy map: ' + JSON.stringify(parsed.hierarchy || {}));
+
+    return parsed;
   } catch (e) {
     Logger.log('Error extracting hashtags: ' + e.toString());
     return { tags: {}, hierarchy: {}, textSignature: '' };
@@ -712,6 +716,21 @@ function jumpToTagBookmark(tagName, occurrenceIndex) {
  */
 function getTagOccurrences(tagName, maxChars) {
   try {
+    function isMeaningfulSnippetText_(value) {
+      var normalized = String(value || '').replace(/\s+/g, ' ').trim();
+      if (!normalized) {
+        return false;
+      }
+
+      // Treat lines made only of hashtags/separators as non-meaningful preview text.
+      var residual = normalized
+        .replace(/#[a-zA-Z0-9_.-]+/g, '')
+        .replace(/[\s,;|()\[\]{}\-]+/g, '')
+        .trim();
+
+      return residual.length > 0;
+    }
+
     var doc = DocumentApp.getActiveDocument();
     var body = doc.getBody();
     var pattern = '#' + escapeTagForRegex(tagName);
@@ -734,6 +753,9 @@ function getTagOccurrences(tagName, maxChars) {
             var end = Math.min(start + limit, text.length);
             var rawSnippet = text.substring(start, end);
             snippet = rawSnippet.replace(/\s+/g, ' ').trim();
+            if (!isMeaningfulSnippetText_(snippet)) {
+              snippet = '';
+            }
           }
 
           if (!snippet) {
@@ -746,7 +768,7 @@ function getTagOccurrences(tagName, maxChars) {
                   var sibling = body.getChild(i);
                   if (sibling.getType && sibling.getType() === DocumentApp.ElementType.PARAGRAPH) {
                     var siblingText = sibling.asParagraph().getText().replace(/\s+/g, ' ').trim();
-                    if (siblingText) {
+                    if (isMeaningfulSnippetText_(siblingText)) {
                       snippet = siblingText.substring(0, limit);
                       break;
                     }
@@ -757,7 +779,7 @@ function getTagOccurrences(tagName, maxChars) {
           }
 
           if (!snippet) {
-            snippet = '(no text on next line)';
+            snippet = 'No preview text available';
           }
           snippets.push({
             index: snippets.length,
