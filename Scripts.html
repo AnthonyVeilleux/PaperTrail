@@ -10,7 +10,8 @@
   let refreshTimer=null;
   let isRefreshing=false;
   let lastSeenUpdated='';
-  let autocompleteInitialized=false
+  let autocompleteInitialized=false;
+  let currentRecentRange='1D';
 
   const colors = [
     { value: '#1A73E8', name: 'Blue' },
@@ -242,6 +243,11 @@
     
     const searchInput = document.getElementById('searchInput');
     const query = searchInput.value.replace('#', '').toLowerCase();
+
+    if (currentFilter === 'recent') {
+      renderRecentView(allTags.recentOccurrences || []);
+      return;
+    }
     
     // Filter projects and tags
     const filteredProjects = allTags.projects.map(project => ({
@@ -299,6 +305,7 @@
 
   function renderTags(data) {
     console.log('Rendering tags:', data);
+    console.log('Recent occurrences:', data.recentOccurrences);
     allTags = data;
     const content = document.getElementById('content');
     
@@ -313,9 +320,13 @@
       renderProjectsView(data.projects);
     } else if (currentFilter === 'global') {
       renderGlobalView(data.projects);
-    } else {
+    } else if (currentFilter === 'recent'){
+      renderRecentView(data.recentOccurrences || []);
+    }
+      else {
       content.innerHTML = '<div class="empty-state"><div class="empty-title">Coming Soon</div></div>';
     }
+    updateHelperTip();
   }
 
   function renderDateView(projects) {
@@ -481,7 +492,145 @@
     html += '</div>';
     content.innerHTML = html;
   }
+    function updateHelperTip() {
+  const tipEl = document.getElementById('helperTip');
+  if (!tipEl) return;
 
+  if (currentFilter === 'recent') {
+    tipEl.innerHTML = 'Add a dated tag using <strong>#Note [4/11]</strong> to include entries here.';
+  } else {
+    tipEl.innerHTML = 'Type <strong>#tagname</strong> in your document to create tags. Nested tags like <strong>#Parent.Child</strong> are also supported.';
+  }
+}
+
+function setRecentRange(range) {
+  currentRecentRange = range;
+  if (allTags) {
+    renderRecentView(allTags.recentOccurrences || []);
+  }
+}
+
+function getDayDifferenceFromToday(isoDate) {
+  const today = new Date();
+  const target = new Date(isoDate + 'T00:00:00');
+
+  const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const targetMidnight = new Date(target.getFullYear(), target.getMonth(), target.getDate());
+
+  const diffMs = todayMidnight - targetMidnight;
+  return Math.floor(diffMs / (1000 * 60 * 60 * 24));
+}
+
+function filterRecentOccurrencesByRange(occurrences, range) {
+  const maxDays = {
+    '1D': 1,
+    '3D': 3,
+    '1W': 7,
+    '1M': 30
+  }[range] || 1;
+
+  return occurrences.filter(item => {
+    const diff = getDayDifferenceFromToday(item.isoDate);
+    return diff >= 0 && diff <= maxDays;
+  });
+}
+
+function renderRecentView(recentOccurrences) {
+  const content = document.getElementById('content');
+  const searchInput = document.getElementById('searchInput');
+  const query = searchInput ? searchInput.value.replace('#', '').trim().toLowerCase() : '';
+
+  let filtered = (recentOccurrences || []).slice();
+
+  // Filter by selected recency range
+  filtered = filterRecentOccurrencesByRange(filtered, currentRecentRange);
+
+  // Optional search by tag name only
+  if (query) {
+    filtered = filtered.filter(item => item.tag.toLowerCase().includes(query));
+  }
+
+  // Sort newest first
+  filtered.sort((a, b) => {
+    if (a.isoDate < b.isoDate) return 1;
+    if (a.isoDate > b.isoDate) return -1;
+    return a.tag.localeCompare(b.tag);
+  });
+
+  let html = `
+    <div style="padding: 8px 8px 4px 8px;">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+        <button class="recent-range-btn ${currentRecentRange === '1D' ? 'active' : ''}" onclick="setRecentRange('1D')">1D</button>
+        <button class="recent-range-btn ${currentRecentRange === '3D' ? 'active' : ''}" onclick="setRecentRange('3D')">3D</button>
+        <button class="recent-range-btn ${currentRecentRange === '1W' ? 'active' : ''}" onclick="setRecentRange('1W')">1W</button>
+        <button class="recent-range-btn ${currentRecentRange === '1M' ? 'active' : ''}" onclick="setRecentRange('1M')">1M</button>
+      </div>
+    </div>
+  `;
+
+  if (!filtered.length) {
+    html += `
+      <div class="empty-state">
+        <div style="font-size:48px;margin-bottom:12px;">🕒</div>
+        <div class="empty-title">No recent dated tags found</div>
+        <p style="font-size:12px;color:#80868b;margin-top:8px;">Try <strong>#Note [4/11]</strong></p>
+      </div>
+    `;
+    content.innerHTML = html;
+    return;
+  }
+
+  html += '<div style="padding:4px;">';
+
+  filtered.forEach(item => {
+    const tagColor = getTagColor(item.tag);
+    html += `
+      <div class="tag-item" style="padding: 10px 12px; border-radius: 8px; margin-bottom: 6px; background: #f8f9fa;">
+        <div class="tag-main" style="align-items:flex-start;">
+          <div class="tag-dot" style="background-color:${tagColor}; flex-shrink: 0; margin-top: 4px;"></div>
+          <div style="flex:1;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+              <span class="tag-name">#${item.tag}</span>
+              <span style="font-size:11px;color:#5f6368;">[${item.rawDate}]</span>
+            </div>
+            <div style="font-size:11px;color:#5f6368;margin-top:4px;line-height:1.4;">
+              ${escapeHtml(item.snippet || '(no text on next line)')}
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  });
+
+  html += '</div>';
+  content.innerHTML = html;
+}
+
+function getTagColor(tagName) {
+  if (!allTags || !allTags.projects) return '#80868b';
+
+  for (const project of allTags.projects) {
+    if (!project.tags) continue;
+    const found = project.tags.find(tag => tag.name === tagName);
+    if (found && found.color) return found.color;
+  }
+
+  if (allTags.globalTags) {
+    const foundGlobal = allTags.globalTags.find(tag => tag.name === tagName);
+    if (foundGlobal && foundGlobal.color) return foundGlobal.color;
+  }
+
+  return '#80868b';
+}
+
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
   function toggleDateGroup(dateKey) {
     const index = expandedProjects.indexOf(dateKey);
     if (index > -1) {

@@ -298,7 +298,7 @@ function getAllTags() {
       documentTags: documentTags,
       hierarchy: documentTags.hierarchy || {},
       bookmarkCounts: bookmarkCounts,
-      recentOccurences: recentOccurrences
+      recentOccurrences: recentOccurrences
     };
     
     // Establish nested tag relationships

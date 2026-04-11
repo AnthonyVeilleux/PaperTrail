@@ -8,7 +8,7 @@
   .search-input { width: 100%; padding: 10px 12px 10px 36px; background: #f1f3f4; border: 1px solid #e8eaed; border-radius: 8px; font-size: 13px; outline: none; margin-bottom: 12px; }
   .search-input:focus { background: #fff; border-color: #1a73e8; }
   
-  .filter-tabs { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; background: #f1f3f4; padding: 4px; border-radius: 8px; }
+  .filter-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; background: #f1f3f4; padding: 4px; border-radius: 8px; }
   .filter-tab { padding: 6px 8px; background: transparent; border: none; border-radius: 6px; font-size: 12px; font-weight: 500; color: #5f6368; cursor: pointer; }
   .filter-tab.active { background: #fff; color: #1a73e8; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
   
@@ -133,4 +133,25 @@
   .autocomplete-text { flex: 1; font-size: 13px; }
   .autocomplete-match { font-weight: 600; color: #1a73e8; }
   .autocomplete-count { font-size: 11px; color: #5f6368; background: #f1f3f4; padding: 2px 6px; border-radius: 4px; }
+  /*recent tab range buttons*/
+  /* ===== RECENT TAB RANGE BUTTONS ===== */
+  .recent-range-btn {
+    border: none;
+    background: #f1f3f4;
+    color: #3c4043;
+    border-radius: 999px;
+    padding: 6px 10px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .recent-range-btn:hover {
+    background: #e8eaed;
+  }
+
+  .recent-range-btn.active {
+    background: #1a73e8;
+    color: white;
+  }
 </style>
