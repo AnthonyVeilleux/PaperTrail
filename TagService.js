@@ -1,6 +1,7 @@
 /**
  * TagService.js - Tag extraction and management logic
  */
+var TAG_HIERARCHY_HASH_PROPERTY_KEY = 'tag_hierarchy_hash';
 
 /**
  * Extract hashtag counts and hierarchy from plain text.
@@ -74,6 +75,55 @@ function extractHashtagsFromDocument() {
     return { tags: {}, hierarchy: {}, textSignature: '' };
   }
 }
+
+function buildTextSignature_(text) {
+  var safeText = String(text || '');
+  return Utilities.base64Encode(
+    Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, safeText)
+  );
+}
+
+function computeHashFromString_(value) {
+  return Utilities.base64Encode(
+    Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, String(value || ''))
+  );
+}
+
+function buildBookmarkCacheHash_(tags, textSignature) {
+  return JSON.stringify({
+    tags: tags || {},
+    textSignature: String(textSignature || '')
+  });
+}
+
+function hasUsableBookmarkCache_(doc, bookmarkMap, tags) {
+  var tagNames = Object.keys(tags || {});
+  if (!tagNames.length) {
+    return true;
+  }
+
+  if (!bookmarkMap) {
+    return false;
+  }
+
+  for (var i = 0; i < tagNames.length; i++) {
+    var tagName = tagNames[i];
+    var expectedCount = tags[tagName] || 0;
+    var bookmarkIds = bookmarkMap[tagName];
+
+    if (!bookmarkIds || bookmarkIds.length !== expectedCount) {
+      return false;
+    }
+
+    for (var j = 0; j < bookmarkIds.length; j++) {
+      if (!doc.getBookmark(bookmarkIds[j])) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
 /**
  * Parse an inline date in [M/D] format.
  * Returns normalized info or null if invalid.
@@ -132,6 +182,15 @@ function extractDatedTagOccurrencesFromDocument(maxSnippetChars) {
     var doc = DocumentApp.getActiveDocument();
     var body = doc.getBody();
     var text = body.getText();
+    return extractDatedTagOccurrencesFromText_(text, maxSnippetChars);
+  } catch (e) {
+    Logger.log('Error extracting dated tag occurrences: ' + e.toString());
+    return [];
+  }
+}
+
+function extractDatedTagOccurrencesFromText_(text, maxSnippetChars) {
+  try {
     var limit = typeof maxSnippetChars === 'number' ? maxSnippetChars : 80;
 
     var occurrences = [];
@@ -209,12 +268,13 @@ function getAllTags() {
     var projectsData = properties.getProperty('projects');
     var globalTagsData = properties.getProperty('globalTags');
     
-    // Extract current hashtags from document
-    var documentTags = extractHashtagsFromDocument();
-    Logger.log('Document tags: ' + JSON.stringify(documentTags));
-    var recentOccurrences = extractDatedTagOccurrencesFromDocument(80);
+    // Read document text once to avoid duplicate full-body scans.
+    var doc = DocumentApp.getActiveDocument();
+    var text = doc.getBody().getText();
+    var documentTags = extractHashtagsFromText_(text);
+    var recentOccurrences = extractDatedTagOccurrencesFromText_(text, 80);
     try {
-      ensureTagBookmarks(documentTags.tags || {});
+      ensureTagBookmarks(documentTags);
     } catch (e) {
       Logger.log('Error ensuring tag bookmarks: ' + e.toString());
     }
@@ -302,9 +362,14 @@ function getAllTags() {
       recentOccurrences: recentOccurrences
     };
     
-    // Establish nested tag relationships
+    // Establish nested tag relationships only when hierarchy changes.
     if (documentTags.hierarchy && Object.keys(documentTags.hierarchy).length > 0) {
-      establishNestedTagRelationships(documentTags.hierarchy);
+      var hierarchyHash = computeHashFromString_(JSON.stringify(documentTags.hierarchy));
+      var previousHierarchyHash = properties.getProperty(TAG_HIERARCHY_HASH_PROPERTY_KEY);
+      if (hierarchyHash !== previousHierarchyHash) {
+        establishNestedTagRelationships(documentTags.hierarchy);
+        properties.setProperty(TAG_HIERARCHY_HASH_PROPERTY_KEY, hierarchyHash);
+      }
     }
     
     // include last-updated timestamp allowing clients to do lightweight checks
@@ -585,7 +650,7 @@ function renameTagInDocument(oldName, newName) {
 /**
  * Build or refresh bookmarks for all tags in the document
  */
-function buildTagBookmarks(documentTags) {
+function buildTagBookmarks(documentTags, bookmarkHash) {
   var doc = DocumentApp.getActiveDocument();
   var body = doc.getBody();
   var properties = PropertiesService.getDocumentProperties();
@@ -641,7 +706,7 @@ function buildTagBookmarks(documentTags) {
 
   properties.setProperty('tag_bookmarks', JSON.stringify(bookmarksByTag));
   properties.setProperty('tag_bookmarks_last_updated', new Date().toISOString());
-  properties.setProperty('tag_bookmarks_hash', JSON.stringify(tags));
+  properties.setProperty('tag_bookmarks_hash', bookmarkHash || JSON.stringify(tags));
 
   return bookmarksByTag;
 }
@@ -650,17 +715,20 @@ function buildTagBookmarks(documentTags) {
  * Ensure bookmarks are up to date with the current document tags
  */
 function ensureTagBookmarks(documentTags) {
+  var doc = DocumentApp.getActiveDocument();
   var properties = PropertiesService.getDocumentProperties();
-  var tags = documentTags || extractHashtagsFromDocument().tags || {};
-  var currentHash = JSON.stringify(tags);
+  var parsedTags = documentTags && documentTags.tags ? documentTags : extractHashtagsFromDocument();
+  var tags = parsedTags.tags || {};
+  var currentHash = buildBookmarkCacheHash_(tags, parsedTags.textSignature);
   var savedHash = properties.getProperty('tag_bookmarks_hash');
   var existing = properties.getProperty('tag_bookmarks');
+  var bookmarkMap = existing ? JSON.parse(existing) : null;
 
-  if (existing && savedHash === currentHash) {
+  if (existing && savedHash === currentHash && hasUsableBookmarkCache_(doc, bookmarkMap, tags)) {
     return;
   }
 
-  buildTagBookmarks(tags);
+  buildTagBookmarks(tags, currentHash);
 }
 
 /**
