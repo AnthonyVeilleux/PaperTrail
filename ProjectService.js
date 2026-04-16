@@ -67,3 +67,11 @@ function updateProjectsWithNewTagInfo(tagName, metadata) {
     Logger.log('Error updating projects: ' + e.toString());
   }
 }
+
+if (typeof module !== 'undefined') {
+  module.exports = {
+    createDefaultProject: createDefaultProject,
+    getDefaultProjects: getDefaultProjects,
+    getDefaultGlobalTags: getDefaultGlobalTags,
+  };
+}
