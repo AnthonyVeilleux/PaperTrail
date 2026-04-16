@@ -208,3 +208,11 @@ function debugExportRuntime() {
   Logger.log('debugExportRuntime: ' + JSON.stringify(result));
   return result;
 }
+
+if (typeof module !== 'undefined') {
+  module.exports = {
+    collectParagraphBlocksWithTag: collectParagraphBlocksWithTag,
+    buildExportText: buildExportText,
+    getTagNamesForExport: getTagNamesForExport,
+  };
+}
