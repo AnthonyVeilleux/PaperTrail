@@ -678,4 +678,14 @@ function getRandomColor() {
   return colors[Math.floor(Math.random() * colors.length)];
 }
 
+if (typeof module !== 'undefined') {
+  module.exports = {
+    extractHashtagsFromText_: extractHashtagsFromText_,
+    escapeRegex: escapeRegex,
+    escapeTagForRegex: escapeTagForRegex,
+    isTagBoundary: isTagBoundary,
+    getRandomColor: getRandomColor,
+  };
+}
+
 
