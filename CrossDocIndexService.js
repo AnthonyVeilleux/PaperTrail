@@ -686,3 +686,14 @@ function getIndexRows_() {
 	return sheet.getRange(1, 1, lastRow, INDEX_HEADERS.length).getValues();
 }
 
+if (typeof module !== 'undefined') {
+	module.exports = {
+		dedupeStringList_: dedupeStringList_,
+		normalizeDriveFolderId_: normalizeDriveFolderId_,
+		normalizeGoogleDocId_: normalizeGoogleDocId_,
+		normalizeGoogleResourceId_: normalizeGoogleResourceId_,
+		searchIndexedDocsByTag: searchIndexedDocsByTag,
+		searchIndexedDocsByTags: searchIndexedDocsByTags,
+	};
+}
+

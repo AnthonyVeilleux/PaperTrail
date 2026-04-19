@@ -9,6 +9,16 @@ if (typeof module !== 'undefined') {
     onOpen: onOpen,
     hideSidebar: hideSidebar,
     showSidebar: showSidebar,
+    include: include,
+    refreshAllTags: refreshAllTags,
+    runBackFill: runBackFill,
+    promptAddIndexFolder: promptAddIndexFolder,
+    promptAddIndexDocument: promptAddIndexDocument,
+    addCurrentDocumentToIndexScope: addCurrentDocumentToIndexScope,
+    addCurrentDocumentToIndexScopeForUi: addCurrentDocumentToIndexScopeForUi,
+    addCurrentDocumentParentFolderToIndexScope: addCurrentDocumentParentFolderToIndexScope,
+    addCurrentDocumentParentFolderToIndexScopeForUi: addCurrentDocumentParentFolderToIndexScopeForUi,
+    showIndexScopeManagerDialog: showIndexScopeManagerDialog,
   };
 }
 // Add-on install hook required by Google Docs Editor Add-ons.
