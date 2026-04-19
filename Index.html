@@ -18,6 +18,7 @@
     <div class="filter-tabs">
       <button class="filter-tab active" data-filter="projects" onclick="setFilter('projects')">Local</button>
       <button class="filter-tab" data-filter="global" onclick="setFilter('global')">Global</button>
+      <button class="filter-tab" data-filter="recent" onclick="setFilter('recent')">Recent</button>
     </div>
   </div>
 
@@ -26,6 +27,11 @@
       <div class="spinner"></div>
       <div>Loading tags...</div>
     </div>
+  </div>
+
+  <div class="footer">
+    <div class="footer-hint" id=""helperTip>
+      💡 Type <strong>#tagname</strong> or nested <strong>#parent.child</strong> in your document</div>
   </div>
 
   <!-- Include JavaScript from Scripts.html -->

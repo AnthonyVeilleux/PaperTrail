@@ -1,6 +1,7 @@
 /**
  * TagService.js - Tag extraction and management logic
  */
+var TAG_HIERARCHY_HASH_PROPERTY_KEY = 'tag_hierarchy_hash';
 
 /**
  * Extract hashtag counts and hierarchy from plain text.
@@ -75,6 +76,187 @@ function extractHashtagsFromDocument() {
   }
 }
 
+function buildTextSignature_(text) {
+  var safeText = String(text || '');
+  return Utilities.base64Encode(
+    Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, safeText)
+  );
+}
+
+function computeHashFromString_(value) {
+  return Utilities.base64Encode(
+    Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, String(value || ''))
+  );
+}
+
+function buildBookmarkCacheHash_(tags, textSignature) {
+  return JSON.stringify({
+    tags: tags || {},
+    textSignature: String(textSignature || '')
+  });
+}
+
+function hasUsableBookmarkCache_(doc, bookmarkMap, tags) {
+  var tagNames = Object.keys(tags || {});
+  if (!tagNames.length) {
+    return true;
+  }
+
+  if (!bookmarkMap) {
+    return false;
+  }
+
+  for (var i = 0; i < tagNames.length; i++) {
+    var tagName = tagNames[i];
+    var expectedCount = tags[tagName] || 0;
+    var bookmarkIds = bookmarkMap[tagName];
+
+    if (!bookmarkIds || bookmarkIds.length !== expectedCount) {
+      return false;
+    }
+
+    for (var j = 0; j < bookmarkIds.length; j++) {
+      if (!doc.getBookmark(bookmarkIds[j])) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+/**
+ * Parse an inline date in [M/D] format.
+ * Returns normalized info or null if invalid.
+ */
+function parseInlineMonthDay(rawDate) {
+  try {
+    if (!rawDate) return null;
+
+    var match = rawDate.match(/^(\d{1,2})\/(\d{1,2})$/);
+    if (!match) return null;
+
+    var month = parseInt(match[1], 10);
+    var day = parseInt(match[2], 10);
+
+    if (month < 1 || month > 12) return null;
+    if (day < 1 || day > 31) return null;
+
+    var now = new Date();
+    var year = now.getFullYear();
+
+    // Build a test date and verify it didn't roll over
+    var parsed = new Date(year, month - 1, day);
+    if (
+      parsed.getFullYear() !== year ||
+      parsed.getMonth() !== month - 1 ||
+      parsed.getDate() !== day
+    ) {
+      return null;
+    }
+
+    var isoDate =
+      year +
+      '-' +
+      ('0' + month).slice(-2) +
+      '-' +
+      ('0' + day).slice(-2);
+
+    return {
+      rawDate: rawDate,
+      month: month,
+      day: day,
+      year: year,
+      isoDate: isoDate
+    };
+  } catch (e) {
+    Logger.log('Error parsing inline date: ' + e.toString());
+    return null;
+  }
+}
+
+ //extract dated tag occurrences from the document.
+ // #Tag [M/D]
+ //date must appear immediately after the tag
+function extractDatedTagOccurrencesFromDocument(maxSnippetChars) {
+  try {
+    var doc = DocumentApp.getActiveDocument();
+    var body = doc.getBody();
+    var text = body.getText();
+    return extractDatedTagOccurrencesFromText_(text, maxSnippetChars);
+  } catch (e) {
+    Logger.log('Error extracting dated tag occurrences: ' + e.toString());
+    return [];
+  }
+}
+
+function extractDatedTagOccurrencesFromText_(text, maxSnippetChars) {
+  try {
+    var limit = typeof maxSnippetChars === 'number' ? maxSnippetChars : 80;
+
+    var occurrences = [];
+
+    //#Note [4/11]
+    //#Parent.Child [12/3]
+    var datedTagRegex = /#([a-zA-Z0-9_.-]+)\s*\[(\d{1,2}\/\d{1,2})\]/g;
+    var match;
+
+    while ((match = datedTagRegex.exec(text)) !== null) {
+      var tagName = match[1];
+      var rawDate = match[2];
+      var parsedDate = parseInlineMonthDay(rawDate);
+
+      if (!parsedDate) {
+        continue; //soft fail
+      }
+
+      var matchStart = match.index;
+      var matchEnd = datedTagRegex.lastIndex;
+
+      //grab snippet
+      var newlineIndex = text.indexOf('\n', matchEnd);
+      var snippet = '';
+
+      if (newlineIndex !== -1) {
+        snippet = text.substring(matchEnd, newlineIndex).replace(/\s+/g, ' ').trim();
+      } else {
+        snippet = text.substring(matchEnd).replace(/\s+/g, ' ').trim();
+      }
+
+      if (!snippet) {
+        //ty next line
+        var nextLineStart = newlineIndex === -1 ? -1 : newlineIndex + 1;
+        if (nextLineStart > -1 && nextLineStart < text.length) {
+          var nextLineEnd = text.indexOf('\n', nextLineStart);
+          if (nextLineEnd === -1) nextLineEnd = text.length;
+          snippet = text.substring(nextLineStart, nextLineEnd).replace(/\s+/g, ' ').trim();
+        }
+      }
+
+      if (!snippet) {
+        snippet = '(no text on next line)';
+      }
+
+      if (snippet.length > limit) {
+        snippet = snippet.substring(0, limit).trim() + '...';
+      }
+
+      occurrences.push({
+        tag: tagName,
+        rawDate: parsedDate.rawDate,
+        month: parsedDate.month,
+        day: parsedDate.day,
+        year: parsedDate.year,
+        isoDate: parsedDate.isoDate,
+        snippet: snippet
+      });
+    }
+
+    return occurrences;
+  } catch (e) {
+    Logger.log('Error extracting dated tag occurrences: ' + e.toString());
+    return [];
+  }
+}
 /**
  * Get all tags with metadata
  */
@@ -86,12 +268,13 @@ function getAllTags() {
     var projectsData = properties.getProperty('projects');
     var globalTagsData = properties.getProperty('globalTags');
     
-    // Extract current hashtags from document
-    var documentTags = extractHashtagsFromDocument();
-    Logger.log('Document tags: ' + JSON.stringify(documentTags));
-
+    // Read document text once to avoid duplicate full-body scans.
+    var doc = DocumentApp.getActiveDocument();
+    var text = doc.getBody().getText();
+    var documentTags = extractHashtagsFromText_(text);
+    var recentOccurrences = extractDatedTagOccurrencesFromText_(text, 80);
     try {
-      ensureTagBookmarks(documentTags.tags || {});
+      ensureTagBookmarks(documentTags);
     } catch (e) {
       Logger.log('Error ensuring tag bookmarks: ' + e.toString());
     }
@@ -175,12 +358,18 @@ function getAllTags() {
       globalTags: globalTags,
       documentTags: documentTags,
       hierarchy: documentTags.hierarchy || {},
-      bookmarkCounts: bookmarkCounts
+      bookmarkCounts: bookmarkCounts,
+      recentOccurrences: recentOccurrences
     };
     
-    // Establish nested tag relationships
+    // Establish nested tag relationships only when hierarchy changes.
     if (documentTags.hierarchy && Object.keys(documentTags.hierarchy).length > 0) {
-      establishNestedTagRelationships(documentTags.hierarchy);
+      var hierarchyHash = computeHashFromString_(JSON.stringify(documentTags.hierarchy));
+      var previousHierarchyHash = properties.getProperty(TAG_HIERARCHY_HASH_PROPERTY_KEY);
+      if (hierarchyHash !== previousHierarchyHash) {
+        establishNestedTagRelationships(documentTags.hierarchy);
+        properties.setProperty(TAG_HIERARCHY_HASH_PROPERTY_KEY, hierarchyHash);
+      }
     }
     
     // include last-updated timestamp allowing clients to do lightweight checks
@@ -461,7 +650,7 @@ function renameTagInDocument(oldName, newName) {
 /**
  * Build or refresh bookmarks for all tags in the document
  */
-function buildTagBookmarks(documentTags) {
+function buildTagBookmarks(documentTags, bookmarkHash) {
   var doc = DocumentApp.getActiveDocument();
   var body = doc.getBody();
   var properties = PropertiesService.getDocumentProperties();
@@ -517,7 +706,7 @@ function buildTagBookmarks(documentTags) {
 
   properties.setProperty('tag_bookmarks', JSON.stringify(bookmarksByTag));
   properties.setProperty('tag_bookmarks_last_updated', new Date().toISOString());
-  properties.setProperty('tag_bookmarks_hash', JSON.stringify(tags));
+  properties.setProperty('tag_bookmarks_hash', bookmarkHash || JSON.stringify(tags));
 
   return bookmarksByTag;
 }
@@ -526,17 +715,20 @@ function buildTagBookmarks(documentTags) {
  * Ensure bookmarks are up to date with the current document tags
  */
 function ensureTagBookmarks(documentTags) {
+  var doc = DocumentApp.getActiveDocument();
   var properties = PropertiesService.getDocumentProperties();
-  var tags = documentTags || extractHashtagsFromDocument().tags || {};
-  var currentHash = JSON.stringify(tags);
+  var parsedTags = documentTags && documentTags.tags ? documentTags : extractHashtagsFromDocument();
+  var tags = parsedTags.tags || {};
+  var currentHash = buildBookmarkCacheHash_(tags, parsedTags.textSignature);
   var savedHash = properties.getProperty('tag_bookmarks_hash');
   var existing = properties.getProperty('tag_bookmarks');
+  var bookmarkMap = existing ? JSON.parse(existing) : null;
 
-  if (existing && savedHash === currentHash) {
+  if (existing && savedHash === currentHash && hasUsableBookmarkCache_(doc, bookmarkMap, tags)) {
     return;
   }
 
-  buildTagBookmarks(tags);
+  buildTagBookmarks(tags, currentHash);
 }
 
 /**
