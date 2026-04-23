@@ -1,218 +1,287 @@
 function showExportTaggedNotesDialog() {
-  var html =HtmlService.createHtmlOutputFromFile('ExportDialog')
-    .setWidth(420)
-    .setHeight(320);
-  DocumentApp.getUi().showModalDialog(html,'Export Tagged Notes');
+  var html = HtmlService.createHtmlOutputFromFile('ExportDialog')
+    .setWidth(480)
+    .setHeight(720);
+  DocumentApp.getUi().showModalDialog(html, 'Export Tagged Notes');
+}
+
+function getDefaultExportFolder() {
+  var doc = DocumentApp.getActiveDocument();
+  var file = DriveApp.getFileById(doc.getId());
+  var parents = file.getParents();
+  if (parents.hasNext()) {
+    var folder = parents.next();
+    return { folderId: folder.getId(), folderName: folder.getName() };
+  }
+  return { folderId: '', folderName: '' };
+}
+
+function resolveFolderId(value) {
+  if (!value) throw new Error('Folder value is required.');
+  var id = value.trim();
+  var urlMatch = id.match(/\/folders\/([a-zA-Z0-9_-]+)/) || id.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (urlMatch) id = urlMatch[1];
+
+  var folder = DriveApp.getFolderById(id);
+  return { folderId: folder.getId(), folderName: folder.getName() };
 }
 
 function getTagNamesForExport() {
-  var extracted =extractHashtagsFromDocument(); 
-  var tagCounts= (extracted && extracted.tags) ? extracted.tags : extracted;
-  return Object.keys(tagCounts || {}).sort();
+  var extracted = extractHashtagsFromDocument();
+  var tagCounts = (extracted && extracted.tags) ? extracted.tags : extracted;
+  var names = Object.keys(tagCounts || {}).sort();
+
+  var props = {};
+  try {
+    props = PropertiesService.getDocumentProperties().getProperties();
+  } catch (e) {
+    Logger.log('Error reading properties for export: ' + e.toString());
+  }
+
+  return names.map(function(name) {
+    var metaKey = 'tag_' + name;
+    var meta = props[metaKey] ? JSON.parse(props[metaKey]) : null;
+    return {
+      name: name,
+      count: tagCounts[name] || 0,
+      color: (meta && meta.color) || getRandomColor()
+    };
+  });
 }
 
-/**
- * the collector header-delimited sections.
- * A section starts when a paragraph begins with "#Tag'
- * and ends when the next paragraph begins with "#OtherTag".
- * Only sections whose header tag == tagName are returned.
- */
-function collectParagraphBlocksWithTag(tagName) {
-  var body =DocumentApp.getActiveDocument().getBody();
-  var wanted =String(tagName || '').toLowerCase();
-  var elements =[];     //colect paragraphs/list items in order
-  for (var i =0; i < body.getNumChildren(); i++) {
-    var child = body.getChild(i);
-    var t =child.getType();
-    if (t ===DocumentApp.ElementType.PARAGRAPH || t === DocumentApp.ElementType.LIST_ITEM) {
-      elements.push(child);
-    }
-  }
-  var headerRe= /^#([A-Za-z0-9_-]+)\b/;   //header = paragraph that starts with "#Tag"
-  var blocks= [];
-  var currentTag= null;
-  var currentLines= [];
+// Single-pass collection of all tag blocks from the document.
+// Returns { tagName: [block, ...], ... } for every tag found.
+function collectAllTagBlocks_() {
+  var body = DocumentApp.getActiveDocument().getBody();
+  var headerRe = /^#([A-Za-z0-9_.-]+)/;
+  var map = {};
+  var currentTag = null;
+  var currentLines = [];
+
   function flush_() {
-    if (currentTag && currentTag === wanted) {
-      while (currentLines.length && (currentLines[currentLines.length - 1] || '').trim() === '') {   //trim trailing blank lines
-        currentLines.pop();
-      }
-      var text= currentLines.join('\n').trim();
-      if (text) blocks.push(text);
+    if (!currentTag) return;
+    while (currentLines.length && (currentLines[currentLines.length - 1] || '').trim() === '') {
+      currentLines.pop();
     }
-    currentLines= [];
+    var text = currentLines.join('\n').trim();
+    if (text) {
+      if (!map[currentTag]) map[currentTag] = [];
+      map[currentTag].push(text);
+    }
+    currentLines = [];
   }
-  for (var k= 0; k < elements.length;k++) {
-    var line =elements[k].getText() || '';
-    var trimmed= line.trim();
-    var m =trimmed.match(headerRe);
+
+  var n = body.getNumChildren();
+  for (var i = 0; i < n; i++) {
+    var child = body.getChild(i);
+    var t = child.getType();
+    if (t !== DocumentApp.ElementType.PARAGRAPH && t !== DocumentApp.ElementType.LIST_ITEM) continue;
+    var line = child.getText() || '';
+    var m = line.trim().match(headerRe);
     if (m) {
       flush_();
-      currentTag =m[1].toLowerCase();
+      currentTag = m[1].toLowerCase();
       currentLines.push(line);
-      continue;
+    } else if (currentTag) {
+      currentLines.push(line);
     }
-    if (currentTag) currentLines.push(line);
   }
   flush_();
-  var seen = {};  //dedupe whil keeping order
-  var unique =[];
-  blocks.forEach(function(b) {
-    if (!seen[b]) {
-      seen[b]= true;
-      unique.push(b);
-    }
+
+  Object.keys(map).forEach(function(tag) {
+    var seen = {};
+    map[tag] = map[tag].filter(function(b) {
+      if (seen[b]) return false;
+      seen[b] = true;
+      return true;
+    });
   });
-  return unique;
+
+  return map;
 }
 
-function buildExportText(tagName, notes) {   //build plan text export (GDoc export)
-  var doc =DocumentApp.getActiveDocument();
-  var header=
-    'PaperTrail Export\n' +
-    'Document: ' + doc.getName() + '\n' +
-    'Tag: #' + tagName + '\n' +
-    'Exported: ' +new Date().toLocaleString() + '\n\n';
-  if (!notes || notes.length ===0) return header + 'No notes found for this tag.\n';
-  var body = notes.map(function(n, i) {   //keep each block intact add simple numeric prefix
-    return (i +1) + '.\n' + n;
-  }).join('\n\n');
-  return header + body + '\n';
-}
-function exportTaggedNotes(tagName, format) {      //entry point called from dialog
-  if (!tagName) throw new Error('Tag is required.');
-  var notes =collectParagraphBlocksWithTag(tagName);
-  if (!notes || notes.length === 0) throw new Error('No notes found for #' + tagName);
-  var fileName= 'PaperTrail Export - #' + tagName;
-  if (format=== 'PDF') {
-    //render directly from blocks for PDF (no numbred text parsing)
-    return exportBlocksAsPdf_(fileName, tagName, notes);
+// Entry point called from dialog. tagNames may be a string or array.
+function exportTaggedNotes(tagNames, format, options) {
+  options = options || {};
+  if (!tagNames || (Array.isArray(tagNames) && tagNames.length === 0)) {
+    throw new Error('At least one tag is required.');
+  }
+  var tags = Array.isArray(tagNames) ? tagNames : [tagNames];
+
+  // Single pass through the document, then look up each requested tag
+  var allBlocks = collectAllTagBlocks_();
+  var sections = [];
+  tags.forEach(function(tag) {
+    var blocks = allBlocks[tag.toLowerCase()];
+    if (blocks && blocks.length) {
+      sections.push({ tag: tag, blocks: blocks });
+    }
+  });
+
+  if (sections.length === 0) {
+    throw new Error('No notes found for the selected tag' + (tags.length > 1 ? 's' : '') + '.');
+  }
+
+  var docName = DocumentApp.getActiveDocument().getName();
+  var MAX_SHOWN = 3;
+  var tagLabel = tags.slice(0, MAX_SHOWN).map(function(t) { return '#' + t; }).join(', ');
+  if (tags.length > MAX_SHOWN) tagLabel += ', +' + (tags.length - MAX_SHOWN) + ' more';
+  var fileName = docName + ': ' + tagLabel;
+
+  if (format === 'PDF') {
+    return exportSectionsAsPdf_(fileName, sections, options);
   } else {
-    var content = buildExportText(tagName, notes);
-    return exportContentAsDoc_(fileName, content);
+    var content = buildExportText_(sections, options);
+    return exportContentAsDoc_(fileName, content, options);
   }
 }
-function exportContentAsDoc_(title, content) {     //google doc export plain text
-  var doc =DocumentApp.create(title);
+
+function buildExportText_(sections, options) {
+  options = options || {};
+  var doc = DocumentApp.getActiveDocument();
+
+  if (options.sortOrder === 'alpha') {
+    sections = sections.slice().sort(function(a, b) {
+      return String(a.tag).localeCompare(String(b.tag));
+    });
+  }
+
+  var header = '';
+  if (options.includeMetadataHeader !== false) {
+    header = doc.getName() + '  ·  ' + new Date().toLocaleDateString() + '\n\n';
+  }
+
+  var body = sections.map(function(section) {
+    if (options.includeTagDividers === false) {
+      return section.blocks.join('\n\n');
+    }
+    var divider = '── #' + section.tag + ' ──';
+    return divider + '\n\n' + section.blocks.join('\n\n');
+  }).join('\n\n\n');
+
+  var footer = '';
+  if (options.includeSourceLink) {
+    footer = '\n\nExported from: ' + doc.getUrl();
+  }
+
+  return header + body + footer + '\n';
+}
+
+function exportContentAsDoc_(title, content, options) {
+  options = options || {};
+  var doc = DocumentApp.create(title);
   doc.getBody().setText(content);
+
+  var file = DriveApp.getFileById(doc.getId());
+  if (options.folderId) {
+    try {
+      var folder = DriveApp.getFolderById(options.folderId);
+      folder.addFile(file);
+    } catch (e) {
+      Logger.log('Could not add doc to folder: ' + e.toString());
+    }
+  }
+
   return { url: doc.getUrl(), id: doc.getId(), type: 'DOC' };
 }
-function exportBlocksAsPdf_(title, tagName, blocks) {   //pdf export style 
-  var tempDoc =DocumentApp.create(title + ' (temp)');
-  var body= tempDoc.getBody();
-  body.clear();
-  var FONT= 'Arial';
-  var META_COLOR= '#555555';
-  //the tuning knobs
-  var SPACE_AFTER_TITLE = 10;
-  var SPACE_AFTER_META_LINE =2;
 
-  var SPACE_BEFORE_ENTRY_NUM= 14;   //bigger gap betwen entries
-  var SPACE_AFTER_ENTRY_NUM =6;
+function exportSectionsAsPdf_(title, sections, options) {
+  options = options || {};
+  var A = DocumentApp.Attribute;
+  var FONT = 'Arial';
 
-  var SPACE_AFTER_ENTRY_HEADER =8;
-  var SPACE_AFTER_BODY_LINE= 4;
-  var SPACE_AFTER_BLANK_LINE =8;
-
-  var INDENT_BODY = 28;
-
-  //title od export
-  var pTitle = body.appendParagraph('PaperTrail Export');
-  pTitle.setHeading(DocumentApp.ParagraphHeading.HEADING1);
-  pTitle.setFontFamily(FONT);
-  pTitle.setBold(false);
-  pTitle.setSpacingAfter(SPACE_AFTER_TITLE);
-  //metadata
-  var src =DocumentApp.getActiveDocument();
-  var metaLines =[
-    'Document: ' + src.getName(),
-    'Tag: #' + tagName,
-    'Exported: ' + new Date().toLocaleString()
-  ];
-  metaLines.forEach(function(line) {
-    var p =body.appendParagraph(line);
-    p.setFontFamily(FONT);
-    p.setFontSize(10);
-    p.setForegroundColor(META_COLOR);
-    p.setBold(false);
-    p.setSpacingAfter(SPACE_AFTER_META_LINE);
-  });
-  body.appendParagraph('').setSpacingAfter(10);
-  //entries mirror Google Doc export layot
-  for (var i =0; i < blocks.length; i++) {
-    var block= String(blocks[i] || '');
-    var lines =block.split('\n');
-    //find first non-empty line like #Note ....
-    var firstNonEmptyIdx =-1;
-    for (var j =0; j < lines.length; j++) {
-      if ((lines[j] || '').trim() !== '') { firstNonEmptyIdx =j; break; }
-    }
-    if (firstNonEmptyIdx < 0) continue;
-    //add entry number line '1'
-    var pNum = body.appendParagraph((i + 1) + '.');
-    pNum.setBold(true);
-    pNum.setFontFamily(FONT);
-    pNum.setFontSize(12);
-    pNum.setSpacingBefore(i === 0 ? 6 : SPACE_BEFORE_ENTRY_NUM);
-    pNum.setSpacingAfter(SPACE_AFTER_ENTRY_NUM);
-    //add header line as written in the doc: #Note title
-    var headerLine =(lines[firstNonEmptyIdx] || '').trim();
-    var pHead= body.appendParagraph(headerLine);
-    pHead.setBold(true);
-    pHead.setFontFamily(FONT);
-    pHead.setFontSize(11);
-    pHead.setIndentStart(0);
-    pHead.setSpacingAfter(SPACE_AFTER_ENTRY_HEADER);
-    //add remaning lines
-    for (var k =firstNonEmptyIdx + 1; k < lines.length; k++) {
-      var raw =lines[k] || '';
-      var trimmed= raw.trim();
-      if (trimmed ==='') {
-        body.appendParagraph('').setSpacingAfter(SPACE_AFTER_BLANK_LINE);
-        continue;
-      }
-      var p =body.appendParagraph(raw);
-      p.setFontFamily(FONT);
-      p.setFontSize(11);
-      p.setBold(false);
-      p.setIndentStart(INDENT_BODY);
-      p.setSpacingAfter(SPACE_AFTER_BODY_LINE);
-    }
+  if (options.sortOrder === 'alpha') {
+    sections = sections.slice().sort(function(a, b) {
+      return String(a.tag).localeCompare(String(b.tag));
+    });
   }
-  //footer mmmmm
-  body.appendParagraph('').setSpacingBefore(14);
-  var footer =body.appendParagraph('Generated by PaperTrail');
-  footer.setFontFamily(FONT);
-  footer.setFontSize(9);
-  footer.setBold(false);
-  footer.setForegroundColor('#888888');
-  footer.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+
+  var metaStyle = {};
+  metaStyle[A.FONT_FAMILY] = FONT; metaStyle[A.FONT_SIZE] = 10;
+  metaStyle[A.FOREGROUND_COLOR] = '#888888'; metaStyle[A.BOLD] = false;
+  metaStyle[A.SPACING_AFTER] = 18;
+
+  var tagStyle = {};
+  tagStyle[A.FONT_FAMILY] = FONT; tagStyle[A.FONT_SIZE] = 13;
+  tagStyle[A.BOLD] = true; tagStyle[A.FOREGROUND_COLOR] = '#1a73e8';
+  tagStyle[A.SPACING_AFTER] = 10;
+
+  var bodyStyle = {};
+  bodyStyle[A.FONT_FAMILY] = FONT; bodyStyle[A.FONT_SIZE] = 11;
+  bodyStyle[A.BOLD] = false; bodyStyle[A.FOREGROUND_COLOR] = '#202124';
+  bodyStyle[A.SPACING_AFTER] = 4;
+
+  var linkStyle = {};
+  linkStyle[A.FONT_FAMILY] = FONT; linkStyle[A.FONT_SIZE] = 10;
+  linkStyle[A.FOREGROUND_COLOR] = '#888888'; linkStyle[A.BOLD] = false;
+  linkStyle[A.SPACING_BEFORE] = 20;
+
+  var tempDoc = DocumentApp.create(title + ' (temp)');
+  var docBody = tempDoc.getBody();
+  docBody.clear();
+
+  var src = DocumentApp.getActiveDocument();
+
+  if (options.includeMetadataHeader !== false) {
+    docBody.appendParagraph(src.getName() + '  ·  ' + new Date().toLocaleDateString())
+      .setAttributes(metaStyle);
+  }
+
+  sections.forEach(function(section, sIdx) {
+    var ts = Object.assign ? Object.assign({}, tagStyle) : JSON.parse(JSON.stringify(tagStyle));
+    ts[A.SPACING_BEFORE] = sIdx === 0 && options.includeMetadataHeader === false ? 0 : 20;
+
+    if (options.includeTagDividers !== false) {
+      docBody.appendParagraph('#' + section.tag).setAttributes(ts);
+    }
+
+    section.blocks.forEach(function(block, bIdx) {
+      block.split('\n').forEach(function(line) {
+        if ((line || '').trim() === '') {
+          docBody.appendParagraph('').setAttributes(bodyStyle);
+          return;
+        }
+        docBody.appendParagraph(line).setAttributes(bodyStyle);
+      });
+      if (bIdx < section.blocks.length - 1) {
+        docBody.appendParagraph('').setAttributes(bodyStyle);
+      }
+    });
+  });
+
+  if (options.includeSourceLink) {
+    docBody.appendParagraph('Exported from: ' + src.getUrl()).setAttributes(linkStyle);
+  }
+
   tempDoc.saveAndClose();
   Utilities.sleep(1500);
 
-  var tempFile =DriveApp.getFileById(tempDoc.getId());
-  var pdfBlob =tempFile.getAs(MimeType.PDF).setName(title + '.pdf');
-  var pdfFile =DriveApp.createFile(pdfBlob);
+  var tempFile = DriveApp.getFileById(tempDoc.getId());
+  var pdfBlob = tempFile.getAs(MimeType.PDF).setName(title + '.pdf');
+  var pdfFile = DriveApp.createFile(pdfBlob);
+
+  if (options.folderId) {
+    try {
+      var folder = DriveApp.getFolderById(options.folderId);
+      folder.addFile(pdfFile);
+    } catch (e) {
+      Logger.log('Could not add PDF to folder: ' + e.toString());
+    }
+  }
+
   try { tempFile.setTrashed(true); } catch (e) {}
   return { url: pdfFile.getUrl(), id: pdfFile.getId(), type: 'PDF' };
-}
-//debug dah bugs
-function debugExportRuntime() {
-  var result ={
-    hasCollect: typeof collectParagraphBlocksWithTag,
-    hasBuild: typeof buildExportText,
-    hasExport: typeof exportTaggedNotes,
-    hasDialog: typeof showExportTaggedNotesDialog
-  };
-
-  Logger.log('debugExportRuntime: ' + JSON.stringify(result));
-  return result;
 }
 
 if (typeof module !== 'undefined') {
   module.exports = {
-    collectParagraphBlocksWithTag: collectParagraphBlocksWithTag,
-    buildExportText: buildExportText,
+    collectAllTagBlocks_: collectAllTagBlocks_,
+    buildExportText_: buildExportText_,
     getTagNamesForExport: getTagNamesForExport,
+    exportTaggedNotes: exportTaggedNotes,
+    getDefaultExportFolder: getDefaultExportFolder,
+    resolveFolderId: resolveFolderId,
+    exportContentAsDoc_: exportContentAsDoc_,
+    exportSectionsAsPdf_: exportSectionsAsPdf_,
   };
 }

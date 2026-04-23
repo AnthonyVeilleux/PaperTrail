@@ -2,165 +2,745 @@
 <html>
   <head>
     <base target="_top">
+    <meta charset="utf-8">
     <style>
+      :root {
+        --font: 'Google Sans', 'Google Sans Text', Roboto, Arial, sans-serif;
+        --blue: #1a73e8;
+        --blue-hover: #1967d2;
+        --blue-bg: #e8f0fe;
+        --blue-bg-hover: #d2e3fc;
+        --blue-text: #174ea6;
+        --blue-dark: #1557b0;
+        --text-primary: #202124;
+        --text-secondary: #5f6368;
+        --text-muted: #80868b;
+        --border: #dadce0;
+        --border-soft: #e8eaed;
+        --surface: #f8f9fa;
+        --surface-hover: #f1f3f4;
+        --error: #c5221f;
+        --success: #137333;
+        --radius-sm: 4px;
+        --radius: 8px;
+        --radius-pill: 20px;
+        --shadow: 0 1px 2px 0 rgba(60,64,67,0.1), 0 1px 3px 1px rgba(60,64,67,0.15);
+      }
+
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+
+      html, body { height: 100%; }
       body {
-        font-family: Arial, sans-serif;
-        padding: 14px;
-        background: #f8f9fa;
-        color: #202124;
-      }
-
-      .panel {
-        background: #fff;
-        border: 1px solid #dadce0;
-        border-radius: 10px;
-        padding: 12px;
-      }
-
-      .title {
-        margin: 0;
-        font-size: 16px;
-        font-weight: 700;
-      }
-
-      .subtitle {
-        margin: 6px 0 12px;
-        color: #5f6368;
-        font-size: 12px;
-      }
-
-      label {
-        display: block;
-        margin-top: 10px;
-        font-weight: 600;
-        font-size: 12px;
-      }
-
-      select {
-        width: 100%;
-        padding: 9px;
-        margin-top: 6px;
-        border: 1px solid #dadce0;
-        border-radius: 8px;
-        font-size: 13px;
-        background: #fff;
-      }
-
-      button {
-        margin-top: 14px;
-        width: 100%;
-        padding: 10px;
-        border: none;
-        border-radius: 8px;
-        background: #1a73e8;
-        color: #fff;
-        font-weight: 600;
-        cursor: pointer;
-      }
-
-      button:disabled {
-        opacity: 0.7;
-        cursor: default;
-      }
-
-      .status {
-        margin-top: 12px;
-        font-size: 12px;
+        font-family: var(--font);
+        font-size: 14px;
         line-height: 1.4;
-        min-height: 18px;
+        color: var(--text-primary);
+        background: #fff;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
       }
 
-      .status.error { color: #a50e0e; }
-      .status.ok { color: #137333; }
-      .status.info { color: #5f6368; }
+      /* ── Header ── */
+      .header { padding: 20px 24px 12px; flex-shrink: 0; }
+      .header-title {
+        font-size: 16px;
+        font-weight: 500;
+        color: var(--text-primary);
+        letter-spacing: -0.01em;
+      }
+      .header-subtitle {
+        font-size: 13px;
+        color: var(--text-secondary);
+        margin-top: 2px;
+      }
 
-      a { word-break: break-all; }
+      /* ── Body ── */
+      .body {
+        flex: 1;
+        overflow: hidden;
+        padding: 8px 24px 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+      }
+
+      /* ── Field ── */
+      .field { margin-bottom: 14px; }
+      .field.tags-field {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        margin-bottom: 10px;
+      }
+      .field-label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 6px;
+      }
+      .field-label-text {
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+      }
+      .field-label-meta {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 12px;
+        color: var(--text-muted);
+      }
+      .quick-link {
+        background: none;
+        border: 0;
+        padding: 0;
+        font-size: 12px;
+        font-family: var(--font);
+        color: var(--blue);
+        cursor: pointer;
+        font-weight: 500;
+      }
+      .quick-link:hover { text-decoration: underline; }
+
+      /* ── Tag search ── */
+      .tag-search {
+        position: relative;
+        margin-bottom: 6px;
+      }
+      .tag-search input {
+        width: 100%;
+        height: 36px;
+        padding: 0 34px 0 38px;
+        border: 1px solid var(--border-soft);
+        border-radius: var(--radius-pill);
+        font-size: 13px;
+        font-family: var(--font);
+        color: var(--text-primary);
+        background: var(--surface);
+        outline: none;
+        transition: background 0.12s, border-color 0.12s, box-shadow 0.12s;
+      }
+      .tag-search input::placeholder { color: var(--text-muted); }
+      .tag-search input:focus {
+        background: #fff;
+        border-color: var(--blue);
+        box-shadow: 0 0 0 1px var(--blue);
+      }
+      .tag-search-icon {
+        position: absolute;
+        left: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 18px;
+        height: 18px;
+        color: var(--text-muted);
+        pointer-events: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .tag-search-icon svg { width: 100%; height: 100%; fill: currentColor; }
+      .tag-search-clear {
+        position: absolute;
+        right: 6px;
+        top: 50%;
+        transform: translateY(-50%);
+        background: none;
+        border: 0;
+        cursor: pointer;
+        padding: 4px;
+        border-radius: 50%;
+        color: var(--text-muted);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        transition: background 0.12s, color 0.12s;
+      }
+      .tag-search-clear svg { width: 16px; height: 16px; fill: currentColor; display: block; }
+      .tag-search-clear.show { display: inline-flex; }
+      .tag-search-clear:hover { background: rgba(60,64,67,0.08); color: var(--text-primary); }
+
+      /* ── Tag list ── */
+      .tag-list {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        padding: 4px;
+        border: 1px solid var(--border-soft);
+        border-radius: var(--radius);
+        flex: 1;
+        overflow-y: auto;
+        background: #fff;
+        margin-bottom: 2px;
+      }
+      .tag-list::-webkit-scrollbar { width: 6px; }
+      .tag-list::-webkit-scrollbar-thumb { background: var(--border-soft); border-radius: 3px; }
+
+      .tag-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 5px 8px;
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        transition: background 0.12s;
+        user-select: none;
+      }
+      .tag-row:hover { background: var(--surface-hover); }
+      .tag-row.on { background: var(--blue-bg); }
+      .tag-row.on:hover { background: var(--blue-bg-hover); }
+      .tag-row.filtered { display: none; }
+
+      .tag-check {
+        width: 18px;
+        height: 18px;
+        border: 2px solid var(--border);
+        border-radius: 3px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        transition: background 0.12s, border-color 0.12s;
+      }
+      .tag-row.on .tag-check {
+        background: var(--blue);
+        border-color: var(--blue);
+      }
+      .tag-check svg {
+        width: 14px;
+        height: 14px;
+        fill: #fff;
+        opacity: 0;
+        transition: opacity 0.12s;
+      }
+      .tag-row.on .tag-check svg { opacity: 1; }
+
+      .tag-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+
+      .tag-name {
+        flex: 1;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--text-primary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .tag-row.on .tag-name { color: var(--blue-text); }
+
+      .tag-count {
+        font-size: 11px;
+        color: var(--text-secondary);
+        background: var(--surface);
+        padding: 1px 6px;
+        border-radius: 4px;
+        flex-shrink: 0;
+      }
+      .tag-row.on .tag-count {
+        background: rgba(255,255,255,0.6);
+        color: var(--blue-text);
+      }
+
+      .tag-row[data-depth="1"] { padding-left: 26px; }
+      .tag-row[data-depth="2"] { padding-left: 42px; }
+      .tag-row[data-depth="3"] { padding-left: 58px; }
+
+      .list-empty {
+        font-size: 13px;
+        color: var(--text-muted);
+        padding: 12px;
+        text-align: center;
+      }
+
+      /* ── Destination input ── */
+      .dest-input {
+        display: flex;
+        gap: 8px;
+        align-items: stretch;
+      }
+      .dest-input input {
+        flex: 1;
+        height: 36px;
+        padding: 0 12px;
+        border: 1px solid var(--border-soft);
+        border-radius: var(--radius);
+        font-size: 13px;
+        font-family: var(--font);
+        color: var(--text-primary);
+        background: var(--surface);
+        outline: none;
+        transition: background 0.12s, border-color 0.12s, box-shadow 0.12s;
+      }
+      .dest-input input::placeholder { color: var(--text-muted); }
+      .dest-input input:focus {
+        background: #fff;
+        border-color: var(--blue);
+        box-shadow: 0 0 0 1px var(--blue);
+      }
+      .dest-name {
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin-top: 6px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .dest-name svg {
+        width: 16px;
+        height: 16px;
+        fill: currentColor;
+        flex-shrink: 0;
+      }
+
+      /* ── Checkbox group ── */
+      .check-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+      }
+      .check-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 3px 0;
+        cursor: pointer;
+        user-select: none;
+        border-radius: var(--radius-sm);
+        transition: background 0.1s;
+      }
+      .check-row:hover { background: var(--surface-hover); }
+      .check-row input[type="checkbox"] {
+        width: 16px;
+        height: 16px;
+        accent-color: var(--blue);
+        cursor: pointer;
+        flex-shrink: 0;
+        margin-left: 2px;
+      }
+      .check-row label {
+        font-size: 13px;
+        color: var(--text-primary);
+        cursor: pointer;
+        line-height: 1.3;
+      }
+
+      /* ── Format segmented toggle ── */
+      .format-toggle {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        overflow: hidden;
+        background: #fff;
+      }
+      .format-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border: 0;
+        background: transparent;
+        color: var(--text-secondary);
+        font-size: 13px;
+        font-weight: 500;
+        font-family: var(--font);
+        cursor: pointer;
+        transition: background 0.12s, color 0.12s;
+      }
+      .format-btn svg { width: 18px; height: 18px; fill: currentColor; }
+      .format-btn + .format-btn { border-left: 1px solid var(--border); }
+      .format-btn.active {
+        background: var(--blue-bg);
+        color: var(--blue-text);
+      }
+      .format-btn:not(.active):hover { background: var(--surface); color: var(--text-primary); }
+
+      .sort-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 7px 12px;
+        border: 0;
+        background: transparent;
+        color: var(--text-secondary);
+        font-size: 13px;
+        font-weight: 500;
+        font-family: var(--font);
+        cursor: pointer;
+        transition: background 0.12s, color 0.12s;
+      }
+      .sort-btn + .sort-btn { border-left: 1px solid var(--border); }
+      .sort-btn.active {
+        background: var(--blue-bg);
+        color: var(--blue-text);
+      }
+      .sort-btn:not(.active):hover { background: var(--surface); color: var(--text-primary); }
+
+      /* ── Footer ── */
+      .footer {
+        flex-shrink: 0;
+        padding: 12px 24px 16px;
+        border-top: 1px solid var(--border-soft);
+        background: #fff;
+      }
+      .footer-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .status {
+        flex: 1;
+        font-size: 12px;
+        min-height: 18px;
+        line-height: 1.4;
+        color: var(--text-secondary);
+        display: flex;
+        align-items: center;
+      }
+      .status.error { color: var(--error); }
+      .status.ok { color: var(--success); }
+      .status a { color: var(--blue); font-weight: 500; text-decoration: none; }
+      .status a:hover { text-decoration: underline; }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        height: 40px;
+        padding: 0 24px;
+        border: 0;
+        border-radius: var(--radius-pill);
+        font-size: 13px;
+        font-weight: 500;
+        font-family: var(--font);
+        cursor: pointer;
+        transition: background 0.12s, box-shadow 0.12s, opacity 0.12s;
+        white-space: nowrap;
+      }
+      .btn svg { width: 18px; height: 18px; fill: currentColor; }
+      .btn:disabled { opacity: 0.45; cursor: default; }
+      .btn-primary { background: var(--blue); color: #fff; }
+      .btn-primary:hover:not(:disabled) { background: var(--blue-hover); box-shadow: var(--shadow); }
     </style>
   </head>
   <body>
-    <div class="panel">
-      <h3 class="title">Export Tagged Notes</h3>
-      <p class="subtitle">Export notes for one tag from the current document.</p>
+    <div class="header">
+      <div class="header-title">Export notes</div>
+      <div class="header-subtitle">Bundle sections under the tags you choose into a Google Doc or PDF.</div>
+    </div>
 
-      <label for="tag">Tag</label>
-      <select id="tag"></select>
+    <div class="body">
+      <div class="field tags-field">
+        <div class="field-label">
+          <span class="field-label-text">Tags</span>
+          <div class="field-label-meta">
+            <span id="selectionCount"></span>
+            <button class="quick-link" type="button" onclick="selectAll(true)">All</button>
+            <button class="quick-link" type="button" onclick="selectAll(false)">None</button>
+          </div>
+        </div>
+        <div class="tag-search">
+          <span class="tag-search-icon">
+            <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+          </span>
+          <input id="tagFilter" type="text" placeholder="Filter tags" oninput="filterTags(this.value)" autocomplete="off" spellcheck="false">
+          <button class="tag-search-clear" id="tagFilterClear" type="button" onclick="clearFilter()" title="Clear">
+            <svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+          </button>
+        </div>
+        <div class="tag-list" id="tagList">
+          <div class="list-empty">Loading…</div>
+        </div>
+      </div>
 
-      <label for="format">Format</label>
-      <select id="format">
-        <option value="DOC">Google Doc</option>
-        <option value="PDF">PDF</option>
-      </select>
+      <div class="field">
+        <div class="field-label">
+          <span class="field-label-text">Format</span>
+        </div>
+        <div class="format-toggle">
+          <button class="format-btn active" data-format="DOC" type="button" onclick="setFormat('DOC')">
+            <svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zM6 20V4h7v5h5v11H6z"/></svg>
+            Google Doc
+          </button>
+          <button class="format-btn" data-format="PDF" type="button" onclick="setFormat('PDF')">
+            <svg viewBox="0 0 24 24"><path d="M20 2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8.5 7.5c0 .83-.67 1.5-1.5 1.5H9v2H7.5V7H10c.83 0 1.5.67 1.5 1.5v1zm5 2c0 .83-.67 1.5-1.5 1.5h-2.5V7H15c.83 0 1.5.67 1.5 1.5v3zm4-3H19v1h1.5V11H19v2h-1.5V7h3v1.5zM9 9.5h1v-1H9v1zM4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm10 5.5h1v-3h-1v3z"/></svg>
+            PDF
+          </button>
+        </div>
+      </div>
 
-      <button id="exportButton" onclick="exportNotes()" disabled>Export Notes</button>
-      <div class="status info" id="status"></div>
+      <div class="field">
+        <div class="field-label">
+          <span class="field-label-text">Sort</span>
+        </div>
+        <div class="format-toggle">
+          <button class="sort-btn active" data-sort="document" type="button" onclick="setSort('document')">Document order</button>
+          <button class="sort-btn" data-sort="alpha" type="button" onclick="setSort('alpha')">A–Z</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">
+          <span class="field-label-text">Destination</span>
+          <button class="quick-link" type="button" onclick="useCurrentFolder()">Use this document's folder</button>
+        </div>
+        <div class="dest-input">
+          <input id="folderInput" type="text" placeholder="Google Drive folder URL or ID" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="dest-name" id="folderName" style="display:none;">
+          <svg viewBox="0 0 24 24"><path d="M10 4H4c-1.11 0-2 .89-2 2v12c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2h-8l-2-2z"/></svg>
+          <span id="folderNameText"></span>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">
+          <span class="field-label-text">Options</span>
+        </div>
+        <div class="check-group">
+          <div class="check-row" onclick="document.getElementById('includeMetadata').click()">
+            <input type="checkbox" id="includeMetadata" checked>
+            <label for="includeMetadata">Include document header</label>
+          </div>
+          <div class="check-row" onclick="document.getElementById('includeDividers').click()">
+            <input type="checkbox" id="includeDividers" checked>
+            <label for="includeDividers">Include tag section headers</label>
+          </div>
+          <div class="check-row" onclick="document.getElementById('includeSource').click()">
+            <input type="checkbox" id="includeSource" checked>
+            <label for="includeSource">Include link to source document</label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <div class="footer-row">
+        <div class="status" id="status"></div>
+        <button class="btn btn-primary" id="exportButton" type="button" onclick="exportNotes()" disabled>Export</button>
+      </div>
     </div>
 
     <script>
+      var selectedFormat = 'DOC';
+      var selectedSort = 'document';
+      var selectedFolderId = '';
+
       function setStatus(msg, type) {
         var el = document.getElementById('status');
-        el.innerHTML = msg;
-        el.className = 'status ' + (type || 'info');
+        el.innerHTML = msg || '';
+        el.className = 'status ' + (type || '');
       }
 
-      function setExportDisabled(isDisabled) {
-        document.getElementById('exportButton').disabled = !!isDisabled;
+      function setFormat(fmt) {
+        selectedFormat = fmt;
+        document.querySelectorAll('.format-btn').forEach(function(btn) {
+          btn.classList.toggle('active', btn.dataset.format === fmt);
+        });
+      }
+
+      function setSort(sort) {
+        selectedSort = sort;
+        document.querySelectorAll('.sort-btn').forEach(function(btn) {
+          btn.classList.toggle('active', btn.dataset.sort === sort);
+        });
+      }
+
+      function getSelectedTags() {
+        return Array.prototype.slice.call(
+          document.querySelectorAll('.tag-row.on')
+        ).map(function(row) { return row.dataset.tag; });
+      }
+
+      function updateState() {
+        var selected = getSelectedTags();
+        var total = document.querySelectorAll('.tag-row').length;
+        var countEl = document.getElementById('selectionCount');
+        if (total > 0) {
+          countEl.textContent = selected.length + ' of ' + total + ' selected';
+        } else {
+          countEl.textContent = '';
+        }
+        var btn = document.getElementById('exportButton');
+        btn.disabled = selected.length === 0;
+        btn.textContent = selected.length > 0
+          ? 'Export ' + selected.length + (selected.length === 1 ? ' tag' : ' tags')
+          : 'Export';
+      }
+
+      function toggleTag(el) {
+        el.classList.toggle('on');
+        updateState();
+      }
+
+      function selectAll(on) {
+        document.querySelectorAll('.tag-row').forEach(function(row) {
+          row.classList.toggle('on', on);
+        });
+        updateState();
+      }
+
+      function filterTags(query) {
+        var q = (query || '').trim().toLowerCase();
+        var rows = document.querySelectorAll('.tag-row');
+        var visibleCount = 0;
+        rows.forEach(function(row) {
+          var matches = q === '' || row.dataset.tag.toLowerCase().indexOf(q) !== -1;
+          row.classList.toggle('filtered', !matches);
+          if (matches) visibleCount++;
+        });
+        var noMatch = document.getElementById('tagNoMatch');
+        if (noMatch) noMatch.style.display = (visibleCount === 0 && q !== '') ? '' : 'none';
+        document.getElementById('tagFilterClear').classList.toggle('show', q !== '');
+      }
+
+      function clearFilter() {
+        var input = document.getElementById('tagFilter');
+        input.value = '';
+        filterTags('');
+        input.focus();
+      }
+
+      function showFolderName(name) {
+        var el = document.getElementById('folderName');
+        var text = document.getElementById('folderNameText');
+        if (name) {
+          text.textContent = name;
+          el.style.display = 'flex';
+        } else {
+          el.style.display = 'none';
+        }
+      }
+
+      function useCurrentFolder() {
+        google.script.run
+          .withSuccessHandler(function(result) {
+            if (result && result.folderId) {
+              selectedFolderId = result.folderId;
+              document.getElementById('folderInput').value = result.folderId;
+              showFolderName(result.folderName);
+            }
+          })
+          .withFailureHandler(function(err) {
+            setStatus('Could not detect folder: ' + err, 'error');
+          })
+          .getDefaultExportFolder();
+      }
+
+      function resolveFolderInput() {
+        var value = document.getElementById('folderInput').value.trim();
+        if (!value) {
+          selectedFolderId = '';
+          showFolderName(null);
+          return;
+        }
+        google.script.run
+          .withSuccessHandler(function(result) {
+            if (result && result.folderId) {
+              selectedFolderId = result.folderId;
+              showFolderName(result.folderName);
+            }
+          })
+          .withFailureHandler(function(err) {
+            selectedFolderId = '';
+            showFolderName(null);
+            setStatus('Invalid folder: ' + err, 'error');
+          })
+          .resolveFolderId(value);
       }
 
       function loadTags() {
-        setStatus('Loading tags...', 'info');
-        setExportDisabled(true);
+        setStatus('');
+        document.getElementById('exportButton').disabled = true;
 
         google.script.run
           .withSuccessHandler(function(tags) {
-            var sel = document.getElementById('tag');
-            sel.innerHTML = '';
-
-            (tags || []).forEach(function(t) {
-              var opt = document.createElement('option');
-              opt.value = t;
-              opt.textContent = '#' + t;
-              sel.appendChild(opt);
-            });
+            var container = document.getElementById('tagList');
+            container.innerHTML = '';
 
             if (!tags || tags.length === 0) {
-              setStatus('No tags found in this document.', 'info');
-              setExportDisabled(true);
+              container.innerHTML = '<div class="list-empty">No tags found in this document.</div>';
+              updateState();
               return;
             }
 
-            setStatus('Ready to export.', 'info');
-            setExportDisabled(false);
+            tags.forEach(function(t) {
+              var depth = (t.name || '').split('.').length - 1;
+              var row = document.createElement('div');
+              row.className = 'tag-row';
+              row.dataset.tag = t.name;
+              row.dataset.depth = depth;
+              row.onclick = function() { toggleTag(row); };
+              row.innerHTML = (
+                '<div class="tag-check">' +
+                  '<svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>' +
+                '</div>' +
+                '<div class="tag-dot" style="background-color:' + (t.color || '#1A73E8') + ';"></div>' +
+                '<div class="tag-name">#' + t.name + '</div>' +
+                '<div class="tag-count">' + (t.count || 0) + '</div>'
+              );
+              container.appendChild(row);
+            });
+
+            var noMatch = document.createElement('div');
+            noMatch.id = 'tagNoMatch';
+            noMatch.className = 'list-empty';
+            noMatch.textContent = 'No matching tags.';
+            noMatch.style.display = 'none';
+            container.appendChild(noMatch);
+
+            updateState();
           })
           .withFailureHandler(function(err) {
-            setStatus('Error loading tags: ' + ((err && err.message) ? err.message : err), 'error');
-            setExportDisabled(true);
+            setStatus('Could not load tags: ' + ((err && err.message) ? err.message : err), 'error');
           })
           .getTagNamesForExport();
       }
 
       function exportNotes() {
-        var tag = document.getElementById('tag').value;
-        var format = document.getElementById('format').value;
+        var tags = getSelectedTags();
+        if (!tags.length) { setStatus('Select at least one tag.', 'error'); return; }
 
-        if (!tag) {
-          setStatus('Select a tag first.', 'error');
-          return;
-        }
+        document.getElementById('exportButton').disabled = true;
+        setStatus('Exporting…');
 
-        setExportDisabled(true);
-        setStatus('Exporting...', 'info');
+        var options = {
+          folderId: selectedFolderId,
+          includeSourceLink: document.getElementById('includeSource').checked,
+          sortOrder: selectedSort,
+          includeTagDividers: document.getElementById('includeDividers').checked,
+          includeMetadataHeader: document.getElementById('includeMetadata').checked
+        };
 
         google.script.run
           .withSuccessHandler(function(result) {
-            setStatus('Done. <a href="' + result.url + '" target="_blank">Open exported file</a>', 'ok');
-            setExportDisabled(false);
+            setStatus('Done — <a href="' + result.url + '" target="_blank">open file</a>', 'ok');
+            document.getElementById('exportButton').disabled = false;
           })
           .withFailureHandler(function(err) {
             setStatus('Export failed: ' + ((err && err.message) ? err.message : err), 'error');
-            setExportDisabled(false);
+            document.getElementById('exportButton').disabled = false;
           })
-          .exportTaggedNotes(tag, format);
+          .exportTaggedNotes(tags, selectedFormat, options);
       }
+
+      document.getElementById('folderInput').addEventListener('blur', resolveFolderInput);
+      document.getElementById('folderInput').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') resolveFolderInput();
+      });
 
       loadTags();
     </script>
