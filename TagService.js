@@ -81,63 +81,61 @@ function extractHashtagsFromDocument() {
 function getAllTags() {
   try {
     Logger.log('Getting all tags...');
-    
+
     var properties = PropertiesService.getDocumentProperties();
-    var projectsData = properties.getProperty('projects');
-    var globalTagsData = properties.getProperty('globalTags');
-    
-    // Extract current hashtags from document
+    var allProps = properties.getProperties(); // single bulk read
+
     var documentTags = extractHashtagsFromDocument();
     Logger.log('Document tags: ' + JSON.stringify(documentTags));
 
-    try {
-      ensureTagBookmarks(documentTags.tags || {});
-    } catch (e) {
-      Logger.log('Error ensuring tag bookmarks: ' + e.toString());
-    }
-    
-    var bookmarkCounts = {};
-    try {
-      var bookmarkData = properties.getProperty('tag_bookmarks');
-      var bookmarkMap = bookmarkData ? JSON.parse(bookmarkData) : {};
-      Object.keys(bookmarkMap).forEach(function(tagName) {
-        bookmarkCounts[tagName] = (bookmarkMap[tagName] || []).length;
-      });
-    } catch (e) {
-      Logger.log('Error reading tag bookmarks: ' + e.toString());
-    }
+    var projects = allProps['projects'] ? JSON.parse(allProps['projects']) : getDefaultProjects();
+    var globalTags = allProps['globalTags'] ? JSON.parse(allProps['globalTags']) : getDefaultGlobalTags();
 
-    // Get or create projects
-    var projects = projectsData ? JSON.parse(projectsData) : getDefaultProjects();
-    var globalTags = globalTagsData ? JSON.parse(globalTagsData) : getDefaultGlobalTags();
-    
-    // Create a map of all existing tag metadata
     var allTagMetadata = {};
-    
-    // Update project tags with document counts
-    projects.forEach(function(project) {
+        projects.forEach(function(project) {
       var updatedTags = [];
-      
-      // First, update existing tags
       if (project.tags) {
         project.tags.forEach(function(tag) {
           if (documentTags.tags[tag.name]) {
             tag.count = documentTags.tags[tag.name];
+            var metaKey = 'tag_' + tag.name;
+            if (allProps[metaKey]) {
+              try {
+                var meta = JSON.parse(allProps[metaKey]);
+                if (meta && meta.color) tag.color = meta.color;
+              } catch (e) {}
+            }
+            if (!tag.color) {
+              tag.color = getRandomColor();
+              pendingWrites[metaKey] = JSON.stringify({
+                created: new Date().toISOString().split('T')[0],
+                createdTime: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+                author: Session.getActiveUser().getEmail() || 'Unknown',
+                lastUsed: 'Just now',
+                color: tag.color,
+                project: '',
+                description: '',
+                items: [],
+                isNested: tag.name.indexOf('.') !== -1,
+                parent: tag.name.indexOf('.') !== -1 ? tag.name.split('.').slice(0, -1).join('.') : null,
+                children: [],
+                depth: tag.name.split('.').length
+              });
+            }
             updatedTags.push(tag);
             allTagMetadata[tag.name] = true;
           }
         });
       }
-      
       project.tags = updatedTags;
     });
-    
-    // Add new tags from document that aren't in any project
+
     var newTags = [];
+    var pendingWrites = {};
+
     for (var tagName in documentTags.tags) {
       if (!allTagMetadata[tagName]) {
-        var metadata = getOrCreateTagMetadata(tagName);
-        // Check if this is a nested tag and set parent if needed
+        var metadata = getOrCreateTagMetadataCached_(tagName, allProps, pendingWrites);
         if (tagName.indexOf('.') !== -1) {
           var parts = tagName.split('.');
           if (parts.length > 1) {
@@ -154,46 +152,56 @@ function getAllTags() {
       }
     }
 
-    // Add new tags to first project or create a default project
     if (newTags.length > 0) {
       if (projects.length === 0) {
         projects = [createDefaultProject()];
       }
       projects[0].tags = (projects[0].tags || []).concat(newTags);
-      
-      // Save updated projects
-      properties.setProperty('projects', JSON.stringify(projects));
+      pendingWrites['projects'] = JSON.stringify(projects);
     }
-    
-    // Update global tags counts
+
     globalTags.forEach(function(tag) {
       tag.count = documentTags.tags[tag.name] || 0;
+      var metaKey = 'tag_' + tag.name;
+      if (allProps[metaKey]) {
+        try {
+          var meta = JSON.parse(allProps[metaKey]);
+          if (meta && meta.color) tag.color = meta.color;
+        } catch (e) {}
+      }
+      if (!tag.color) {
+        tag.color = getRandomColor();
+        pendingWrites[metaKey] = JSON.stringify({
+          created: new Date().toISOString().split('T')[0],
+          createdTime: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+          author: Session.getActiveUser().getEmail() || 'Unknown',
+          lastUsed: 'Just now',
+          color: tag.color,
+          project: '',
+          description: '',
+          items: [],
+          isNested: tag.name.indexOf('.') !== -1,
+          parent: tag.name.indexOf('.') !== -1 ? tag.name.split('.').slice(0, -1).join('.') : null,
+          children: [],
+          depth: tag.name.split('.').length
+        });
+      }
     });
-    
-    var result = {
+
+    if (Object.keys(pendingWrites).length > 0) {
+      pendingWrites['tags_last_updated'] = new Date().toISOString();
+      properties.setProperties(pendingWrites);
+    }
+
+    Logger.log('Returning: ' + projects.length + ' projects');
+    return {
       projects: projects,
       globalTags: globalTags,
       documentTags: documentTags,
       hierarchy: documentTags.hierarchy || {},
-      bookmarkCounts: bookmarkCounts
+      lastUpdated: allProps['tags_last_updated'] || new Date().toISOString()
     };
-    
-    // Establish nested tag relationships
-    if (documentTags.hierarchy && Object.keys(documentTags.hierarchy).length > 0) {
-      establishNestedTagRelationships(documentTags.hierarchy);
-    }
-    
-    // include last-updated timestamp allowing clients to do lightweight checks
-    try {
-      var lastUpdated = properties.getProperty('tags_last_updated') || new Date().toISOString();
-      result.lastUpdated = lastUpdated;
-    } catch (e) {
-      result.lastUpdated = new Date().toISOString();
-    }
-    
-    Logger.log('Returning: ' + projects.length + ' projects');
-    return result;
-    
+
   } catch (e) {
     Logger.log('Error in getAllTags: ' + e.toString());
     return {
@@ -265,10 +273,42 @@ function getOrCreateTagMetadata(tagName) {
 }
 
 /**
- * Get tag metadata
+ * Read-from-cache / write-to-pending variant used by getAllTags to avoid
+ * individual getProperty calls inside a loop.
  */
-function getTagMetadata(tagName) {
-  return getOrCreateTagMetadata(tagName);
+function getOrCreateTagMetadataCached_(tagName, propCache, pendingWrites) {
+  var key = 'tag_' + tagName;
+  var data = propCache[key];
+
+  if (data) {
+    return JSON.parse(data);
+  }
+
+  var isNested = tagName.indexOf('.') !== -1;
+  var parent = null;
+
+  if (isNested) {
+    var parts = tagName.split('.');
+    parent = parts.slice(0, -1).join('.');
+  }
+
+  var metadata = {
+    created: new Date().toISOString().split('T')[0],
+    createdTime: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+    author: Session.getActiveUser().getEmail() || 'Unknown',
+    lastUsed: 'Just now',
+    color: getRandomColor(),
+    project: '',
+    description: '',
+    items: [],
+    isNested: isNested,
+    parent: parent,
+    children: [],
+    depth: isNested ? tagName.split('.').length : 1
+  };
+
+  pendingWrites[key] = JSON.stringify(metadata);
+  return metadata;
 }
 
 /**
@@ -284,6 +324,25 @@ function saveTagMetadata(tagName, metadata) {
     return { success: true };
   } catch (e) {
     Logger.log('Error saving metadata: ' + e.toString());
+    return { success: false, error: e.toString() };
+  }
+}
+
+/**
+ * Update just the color for a tag.
+ */
+function saveTagColor(tagName, color) {
+  try {
+    var properties = PropertiesService.getDocumentProperties();
+    var key = 'tag_' + tagName;
+    var existing = properties.getProperty(key);
+    var metadata = existing ? JSON.parse(existing) : getOrCreateTagMetadata(tagName);
+    metadata.color = color;
+    properties.setProperty(key, JSON.stringify(metadata));
+    try { properties.setProperty('tags_last_updated', new Date().toISOString()); } catch(e) { Logger.log('Error setting tags_last_updated: ' + e.toString()); }
+    return { success: true };
+  } catch (e) {
+    Logger.log('Error saving tag color: ' + e.toString());
     return { success: false, error: e.toString() };
   }
 }
@@ -334,60 +393,6 @@ function establishNestedTagRelationships(hierarchyMap) {
 
 
 /**
- * Update tag metadata
- */
-function updateTag(tagName, updates) {
-  try {
-    Logger.log('Updating tag: ' + tagName);
-    Logger.log('Updates: ' + JSON.stringify(updates));
-    
-    var metadata = getOrCreateTagMetadata(tagName);
-    
-    // Update fields
-    if (updates.color) {
-      metadata.color = updates.color;
-    }
-    if (updates.project !== undefined) {
-      metadata.project = updates.project;
-    }
-    if (updates.description !== undefined) {
-      metadata.description = updates.description;
-    }
-    
-    // Handle tag rename
-    if (updates.tagName && updates.tagName !== tagName) {
-      // Rename tag in document
-      var renameResult = renameTagInDocument(tagName, updates.tagName);
-      if (!renameResult.success) {
-        return renameResult;
-      }
-      
-      // Delete old metadata
-      var properties = PropertiesService.getDocumentProperties();
-      properties.deleteProperty('tag_' + tagName);
-      tagName = updates.tagName;
-    }
-    
-    metadata.lastUsed = new Date().toLocaleString();
-    
-    var result = saveTagMetadata(tagName, metadata);
-    
-    if (result.success) {
-      // Update projects data
-      updateProjectsWithNewTagInfo(tagName, metadata);
-      // mark tags as updated
-      try { PropertiesService.getDocumentProperties().setProperty('tags_last_updated', new Date().toISOString()); } catch(e) { Logger.log('Error setting tags_last_updated: ' + e.toString()); }
-    }
-    
-    return result;
-  } catch (e) {
-    Logger.log('Error in updateTag: ' + e.toString());
-    return { success: false, error: e.toString() };
-  }
-}
-
-
-/**
  * Check if a tag match ends at a valid boundary
  */
 function isTagBoundary(text, endIndex) {
@@ -421,8 +426,7 @@ function renameTagInDocument(oldName, newName) {
     
     // Create regex pattern for the old tag
     var pattern = '#' + escapeTagForRegex(oldName) + '\\b';
-    var tagName = oldName; // Fix for undefined variable in original code
-    
+
     // Replace all occurrences
     var searchResult = body.findText(pattern);
     var count = 0;
@@ -459,41 +463,15 @@ function renameTagInDocument(oldName, newName) {
 
 
 /**
- * Build or refresh bookmarks for all tags in the document
+ * Jump the cursor to the Nth occurrence of a tag using findText (no bookmarks).
  */
-function buildTagBookmarks(documentTags) {
-  var doc = DocumentApp.getActiveDocument();
-  var body = doc.getBody();
-  var properties = PropertiesService.getDocumentProperties();
-
-  var tags = documentTags || extractHashtagsFromDocument().tags || {};
-  var tagNames = Object.keys(tags);
-  var bookmarksByTag = {};
-
-  // Remove previously created tag bookmarks
+function jumpToTagBookmark(tagName, occurrenceIndex) {
   try {
-    var existing = properties.getProperty('tag_bookmarks');
-    if (existing) {
-      var existingMap = JSON.parse(existing);
-      Object.keys(existingMap).forEach(function(tagName) {
-        if (existingMap[tagName]) {
-          existingMap[tagName].forEach(function(bookmarkId) {
-            try {
-              var bookmark = doc.getBookmark(bookmarkId);
-              if (bookmark) bookmark.remove();
-            } catch(e) {}
-          });
-        }
-      });
-    }
-  } catch (e) {
-    Logger.log('Error removing existing tag bookmarks: ' + e.toString());
-  }
-
-  // Create new bookmarks for each tag occurrence
-  tagNames.forEach(function(tagName) {
+    var doc = DocumentApp.getActiveDocument();
+    var body = doc.getBody();
     var pattern = '#' + escapeTagForRegex(tagName);
     var searchResult = body.findText(pattern);
+    var occurrences = [];
 
     while (searchResult !== null) {
       var element = searchResult.getElement();
@@ -501,85 +479,28 @@ function buildTagBookmarks(documentTags) {
         var textElement = element.asText();
         var text = textElement.getText();
         if (isTagBoundary(text, searchResult.getEndOffsetInclusive())) {
-          var position = doc.newPosition(textElement, searchResult.getStartOffset());
-          var bookmark = doc.addBookmark(position);
-          if (bookmark) {
-            if (!bookmarksByTag[tagName]) {
-              bookmarksByTag[tagName] = [];
-            }
-            bookmarksByTag[tagName].push(bookmark.getId());
-          }
+          occurrences.push({ element: textElement, offset: searchResult.getStartOffset() });
         }
       }
       searchResult = body.findText(pattern, searchResult);
     }
-  });
 
-  properties.setProperty('tag_bookmarks', JSON.stringify(bookmarksByTag));
-  properties.setProperty('tag_bookmarks_last_updated', new Date().toISOString());
-  properties.setProperty('tag_bookmarks_hash', JSON.stringify(tags));
-
-  return bookmarksByTag;
-}
-
-/**
- * Ensure bookmarks are up to date with the current document tags
- */
-function ensureTagBookmarks(documentTags) {
-  var properties = PropertiesService.getDocumentProperties();
-  var tags = documentTags || extractHashtagsFromDocument().tags || {};
-  var currentHash = JSON.stringify(tags);
-  var savedHash = properties.getProperty('tag_bookmarks_hash');
-  var existing = properties.getProperty('tag_bookmarks');
-
-  if (existing && savedHash === currentHash) {
-    return;
-  }
-
-  buildTagBookmarks(tags);
-}
-
-/**
- * Jump the cursor to a bookmark for the given tag
- */
-function jumpToTagBookmark(tagName, occurrenceIndex) {
-  try {
-    var doc = DocumentApp.getActiveDocument();
-    var properties = PropertiesService.getDocumentProperties();
-    var bookmarksData = properties.getProperty('tag_bookmarks');
-
-    if (!bookmarksData) {
-      ensureTagBookmarks();
-      bookmarksData = properties.getProperty('tag_bookmarks');
-    }
-
-    var map = bookmarksData ? JSON.parse(bookmarksData) : {};
-    var list = map[tagName] || [];
-
-    if (!list.length) {
-      ensureTagBookmarks();
-      map = JSON.parse(properties.getProperty('tag_bookmarks') || '{}');
-      list = map[tagName] || [];
-    }
-
-    if (!list.length) {
-      return { success: false, error: 'No bookmarks found for tag.' };
+    if (!occurrences.length) {
+      return { success: false, error: 'Tag not found in document.' };
     }
 
     var index = typeof occurrenceIndex === 'number' ? occurrenceIndex : 0;
-    if (index < 0 || index >= list.length) {
+    if (index < 0 || index >= occurrences.length) {
       index = 0;
     }
 
-    var bookmark = doc.getBookmark(list[index]);
-    if (!bookmark) {
-      return { success: false, error: 'Bookmark not found.' };
-    }
-
-    doc.setCursor(bookmark.getPosition());
-    return { success: true, count: list.length, index: index };
+    var target = occurrences[index];
+    var rangeBuilder = doc.newRange();
+    rangeBuilder.addElement(target.element, target.offset, target.offset + tagName.length);
+    doc.setSelection(rangeBuilder.build());
+    return { success: true, count: occurrences.length, index: index };
   } catch (e) {
-    Logger.log('Error jumping to tag bookmark: ' + e.toString());
+    Logger.log('Error jumping to tag: ' + e.toString());
     return { success: false, error: e.toString() };
   }
 }
@@ -634,11 +555,11 @@ function getTagOccurrences(tagName, maxChars) {
           if (!snippet) {
             var parent = textElement.getParent();
             if (parent && parent.getType && parent.getType() === DocumentApp.ElementType.PARAGRAPH) {
-              var body = parent.getParent();
-              if (body && body.getChildIndex) {
-                var parentIndex = body.getChildIndex(parent);
-                for (var i = parentIndex + 1; i < body.getNumChildren(); i++) {
-                  var sibling = body.getChild(i);
+              var docBody = parent.getParent();
+              if (docBody && docBody.getChildIndex) {
+                var parentIndex = docBody.getChildIndex(parent);
+                for (var i = parentIndex + 1; i < docBody.getNumChildren(); i++) {
+                  var sibling = docBody.getChild(i);
                   if (sibling.getType && sibling.getType() === DocumentApp.ElementType.PARAGRAPH) {
                     var siblingText = sibling.asParagraph().getText().replace(/\s+/g, ' ').trim();
                     if (isMeaningfulSnippetText_(siblingText)) {
@@ -685,6 +606,7 @@ if (typeof module !== 'undefined') {
     escapeTagForRegex: escapeTagForRegex,
     isTagBoundary: isTagBoundary,
     getRandomColor: getRandomColor,
+    saveTagColor: saveTagColor,
   };
 }
 

@@ -49,8 +49,8 @@ test.describe('Index sidebar', () => {
     await page.goto('/Index.html');
   });
 
-  test('renders page title', async ({ page }) => {
-    await expect(page.locator('.header-title')).toContainText('PaperTrail');
+  test('search input is present', async ({ page }) => {
+    await expect(page.locator('#searchInput')).toBeVisible();
   });
 
   test('shows tag names after load', async ({ page }) => {
@@ -69,11 +69,12 @@ test.describe('Index sidebar', () => {
     await expect(page.getByRole('button', { name: 'Global' })).toBeVisible();
   });
 
-  test('search input filters tag list', async ({ page }) => {
+  test('search input filters tag list after pressing Enter', async ({ page }) => {
     // Wait for tags to load first
     await expect(page.getByText('#biology')).toBeVisible({ timeout: 5000 });
 
-    await page.fill('#searchInput', '#biology');
+    await page.fill('#searchInput', 'biology');
+    await page.keyboard.press('Enter');
     // biology should remain; experiment should disappear
     await expect(page.getByText('#biology')).toBeVisible();
     await expect(page.getByText('#experiment')).not.toBeVisible();
@@ -81,7 +82,7 @@ test.describe('Index sidebar', () => {
 
   test('search shows empty state when no tags match', async ({ page }) => {
     await expect(page.getByText('#biology')).toBeVisible({ timeout: 5000 });
-    await page.fill('#searchInput', '#nonexistenttag');
+    await page.fill('#searchInput', 'nonexistenttag');
     await page.keyboard.press('Enter');
     await expect(page.getByText('No Tags Found')).toBeVisible();
   });
@@ -114,9 +115,8 @@ test.describe('ScopeManager dialog', () => {
     await page.goto('/ScopeManager.html');
   });
 
-  test('renders section headings', async ({ page }) => {
-    await expect(page.getByText('Include A Folder')).toBeVisible();
-    await expect(page.getByText('Include A Single Document')).toBeVisible();
+  test('renders header title', async ({ page }) => {
+    await expect(page.locator('.header-title')).toContainText('Index scope');
   });
 
   test('shows folder count after load', async ({ page }) => {
@@ -143,9 +143,9 @@ test.describe('ScopeManager dialog', () => {
     });
     await page.goto('/ScopeManager.html');
 
-    await page.fill('#folderInput', 'https://drive.google.com/folder/new');
-    await page.getByRole('button', { name: 'Include Folder' }).click();
-    await expect(page.locator('#status')).toContainText('Folder included', { timeout: 3000 });
+    await page.fill('#addInput', 'https://drive.google.com/folder/new');
+    await page.locator('#addBtn').click();
+    await expect(page.locator('#status')).toContainText('Folder added', { timeout: 3000 });
   });
 
   test('shows error status when adding folder fails', async ({ page }) => {
@@ -156,8 +156,8 @@ test.describe('ScopeManager dialog', () => {
     );
     await page.goto('/ScopeManager.html');
 
-    await page.fill('#folderInput', 'bad-input');
-    await page.getByRole('button', { name: 'Include Folder' }).click();
+    await page.fill('#addInput', 'bad-input');
+    await page.locator('#addBtn').click();
     await expect(page.locator('#status')).toContainText('Invalid folder ID', { timeout: 3000 });
   });
 
@@ -168,9 +168,11 @@ test.describe('ScopeManager dialog', () => {
     });
     await page.goto('/ScopeManager.html');
 
-    await page.fill('#docInput', 'https://docs.google.com/d/new-doc');
-    await page.getByRole('button', { name: 'Include Doc' }).click();
-    await expect(page.locator('#status')).toContainText('Document included', { timeout: 3000 });
+    // Switch to Document mode
+    await page.locator('#segDoc').click();
+    await page.fill('#addInput', 'https://docs.google.com/d/new-doc');
+    await page.locator('#addBtn').click();
+    await expect(page.locator('#status')).toContainText('Document added', { timeout: 3000 });
   });
 
   test('shows sync status after running backfill', async ({ page }) => {
@@ -180,8 +182,8 @@ test.describe('ScopeManager dialog', () => {
     });
     await page.goto('/ScopeManager.html');
 
-    await page.getByRole('button', { name: 'Sync Index Now' }).click();
-    await expect(page.locator('#status')).toContainText('Updated: 4', { timeout: 3000 });
+    await page.locator('#syncBtn').click();
+    await expect(page.locator('#status')).toContainText('updated 4', { timeout: 3000 });
   });
 
   test('shows failure status when backfill fails', async ({ page }) => {
@@ -192,7 +194,7 @@ test.describe('ScopeManager dialog', () => {
     );
     await page.goto('/ScopeManager.html');
 
-    await page.getByRole('button', { name: 'Sync Index Now' }).click();
+    await page.locator('#syncBtn').click();
     await expect(page.locator('#status')).toContainText('Quota exceeded', { timeout: 3000 });
   });
 
@@ -220,15 +222,21 @@ test.describe('Index sidebar - nested tags', () => {
     await expect(parentRow.locator('.tag-expand-icon')).toBeVisible();
   });
 
-  test('group node children are expanded by default', async ({ page }) => {
-    // project.alpha and project.beta should already be visible (group nodes expand by default)
-    await expect(page.getByText('#alpha')).toBeVisible();
-    await expect(page.getByText('#beta')).toBeVisible();
+  test('group node children are collapsed by default', async ({ page }) => {
+    // project.alpha and project.beta are hidden until the parent is expanded
+    await expect(page.locator('span.tag-name[title="#project.alpha"]')).not.toBeVisible();
+    await expect(page.locator('span.tag-name[title="#project.beta"]')).not.toBeVisible();
   });
 
-  test('deeply nested child is visible after expanding parent tag', async ({ page }) => {
-    // project.alpha is a real tag (not a group node) so its children are collapsed by default.
-    // Expand it by clicking its expand icon first.
+  test('deeply nested child is visible after expanding parent tags', async ({ page }) => {
+    // First expand the root "project" group node
+    const projectExpandIcon = page.locator('.tag-item').filter({
+      has: page.locator('span.tag-name[title="#project"]')
+    }).locator('.tag-expand-icon');
+    await projectExpandIcon.click();
+    await expect(page.locator('span.tag-name[title="#project.alpha"]')).toBeVisible({ timeout: 3000 });
+
+    // Then expand project.alpha to reveal its child
     const alphaExpandIcon = page.locator('.tag-item').filter({
       has: page.locator('span.tag-name[title="#project.alpha"]')
     }).locator('.tag-expand-icon');
@@ -239,16 +247,18 @@ test.describe('Index sidebar - nested tags', () => {
     await expect(page.locator('.nested-children .nested-children')).toBeVisible();
   });
 
-  test('clicking expand arrow twice collapses children', async ({ page }) => {
-    // Group nodes start with implicit expanded=true (expandedTags key is absent).
-    // First click sets the key to true (no visible change); second click sets it false (collapsed).
+  test('clicking expand arrow expands and collapses children', async ({ page }) => {
     const projectExpandIcon = page.locator('.tag-item').filter({
       has: page.locator('span.tag-name[title="#project"]')
     }).locator('.tag-expand-icon');
     await expect(projectExpandIcon).toBeVisible();
-    await projectExpandIcon.click(); // undefined → true (still expanded)
-    await projectExpandIcon.click(); // true → false (collapsed)
 
+    // First click expands
+    await projectExpandIcon.click();
+    await expect(page.locator('span.tag-name[title="#project.alpha"]')).toBeVisible({ timeout: 3000 });
+
+    // Second click collapses
+    await projectExpandIcon.click();
     await expect(page.locator('span.tag-name[title="#project.alpha"]')).not.toBeVisible({ timeout: 3000 });
     await expect(page.locator('span.tag-name[title="#project.beta"]')).not.toBeVisible();
   });
@@ -258,8 +268,11 @@ test.describe('Index sidebar - nested tags', () => {
       has: page.locator('span.tag-name[title="#project"]')
     }).locator('.tag-expand-icon');
 
-    // Two clicks to collapse
+    // Expand
     await projectExpandIcon.click();
+    await expect(page.locator('span.tag-name[title="#project.alpha"]')).toBeVisible({ timeout: 3000 });
+
+    // Collapse
     await projectExpandIcon.click();
     await expect(page.locator('span.tag-name[title="#project.alpha"]')).not.toBeVisible({ timeout: 3000 });
 
@@ -289,41 +302,27 @@ test.describe('Index sidebar - tag actions', () => {
   });
 
   test('clicking a leaf tag calls jumpToTagBookmark', async ({ page }) => {
-    // Intercept the script.run call via the stub — track calls via a window flag
-    await page.evaluate(() => {
-      const win = /** @type {any} */ (window);
-      win._lastJump = null;
-      const original = win.google.script.run;
-      win.google.script.run = new Proxy(original, {
-        get(t, prop) {
-          if (prop !== 'withSuccessHandler' && prop !== 'withFailureHandler') return t[prop];
-          return t[prop];
-        }
-      });
-    });
-
     // Click #methods (count:1, leaf tag)
     await page.locator('.tag-item').filter({ hasText: '#methods' }).click();
-    // jumpToTagBookmark fires; we can't easily assert the stub call here,
-    // but we verify no error state appeared — the tag remained visible
+    // Verify no error state appeared — the tag remained visible
     await expect(page.getByText('#methods')).toBeVisible();
   });
 
-  test('occurrence toggle button (◎) appears for tags with count > 1', async ({ page }) => {
-    // biology has count:3, so it should show the ◎ toggle
+  test('occurrence badge appears for tags with count > 1', async ({ page }) => {
+    // biology has count:3, so it should show the has-occurrences badge
     const biologyRow = page.locator('.tag-item').filter({ hasText: '#biology' });
-    await expect(biologyRow.locator('.tag-occurrence-toggle')).toBeVisible();
+    await expect(biologyRow.locator('.tag-count-badge.has-occurrences')).toBeVisible();
   });
 
-  test('occurrence toggle is absent for tags with count = 1', async ({ page }) => {
+  test('occurrence badge is absent for tags with count = 1', async ({ page }) => {
     // methods has count:1
     const methodsRow = page.locator('.tag-item').filter({ hasText: '#methods' });
-    await expect(methodsRow.locator('.tag-occurrence-toggle')).not.toBeVisible();
+    await expect(methodsRow.locator('.tag-count-badge.has-occurrences')).not.toBeVisible();
   });
 
-  test('clicking ◎ expands occurrence list and shows items', async ({ page }) => {
+  test('clicking occurrence badge expands occurrence list and shows items', async ({ page }) => {
     const biologyRow = page.locator('.tag-item').filter({ hasText: '#biology' });
-    await biologyRow.locator('.tag-occurrence-toggle').click();
+    await biologyRow.locator('.tag-count-badge.has-occurrences').click();
 
     // getTagOccurrences stub fires and renders occurrences
     await expect(page.getByText('first occurrence text')).toBeVisible({ timeout: 3000 });
@@ -331,16 +330,16 @@ test.describe('Index sidebar - tag actions', () => {
     await expect(page.getByText('third occurrence text')).toBeVisible();
   });
 
-  test('clicking ◎ again collapses the occurrence list', async ({ page }) => {
-    const toggle = page.locator('.tag-item').filter({ hasText: '#biology' })
-      .locator('.tag-occurrence-toggle');
+  test('clicking occurrence badge again collapses the occurrence list', async ({ page }) => {
+    const badge = page.locator('.tag-item').filter({ hasText: '#biology' })
+      .locator('.tag-count-badge.has-occurrences');
 
     // Expand
-    await toggle.click();
+    await badge.click();
     await expect(page.getByText('first occurrence text')).toBeVisible({ timeout: 3000 });
 
     // Collapse
-    await toggle.click();
+    await badge.click();
     await expect(page.getByText('first occurrence text')).not.toBeVisible();
   });
 
@@ -355,9 +354,9 @@ test.describe('Index sidebar - tag actions', () => {
     await expect(page.getByText('#biology')).toBeVisible({ timeout: 5000 });
 
     await page.locator('.tag-item').filter({ hasText: '#biology' })
-      .locator('.tag-occurrence-toggle').click();
+      .locator('.tag-count-badge.has-occurrences').click();
 
-    await expect(page.getByText('Loading occurrences...')).toBeVisible({ timeout: 3000 });
+    await expect(page.getByText('Loading…')).toBeVisible({ timeout: 3000 });
   });
 
   test('filter tabs switch between Local and Global views', async ({ page }) => {

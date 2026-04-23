@@ -1,6 +1,7 @@
 <!-- Script tag originally in index.html, now in its own file for organizational purposes -->
 <script>
   let currentFilter = 'projects';
+  let currentSort = 'alpha';
   let allTags = null;
   let currentTag = null;
   let expandedProjects = [];
@@ -23,6 +24,8 @@
   let globalSyncMessage = '';
   let globalSearchRequestId = 0;
   let globalSearchTimeoutId = null;
+  let globalSearchMode = 'AND';
+  const GLOBAL_STALE_MS = 14 * 24 * 60 * 60 * 1000;
 
   const colors = [
     { value: '#1A73E8', name: 'Blue' },
@@ -33,63 +36,21 @@
     { value: '#0891B2', name: 'Cyan' }
   ];
 
+  // Debounce helper: delay fn until ms of quiet time
+  function debounce(fn, ms) {
+    let t;
+    return function() {
+      clearTimeout(t);
+      t = setTimeout(() => fn.apply(this, arguments), ms);
+    };
+  }
+
   // Load tags on startup
   window.onload = function() {
     console.log('Loading tags...');
     loadTags();
-    setupKeyboardShortcuts();
     startAutoRefresh();
   };
-
-  // Setup keyboard shortcuts
-  function setupKeyboardShortcuts() {
-    console.log('Setting up keyboard shortcuts...');
-    
-    // Handle Shift+K to toggle sidebar
-    function handleKeyDown(e) {
-      console.log('Key event captured:', {key: e.key, code: e.code, shift: e.shiftKey, ctrl: e.ctrlKey});
-      
-      // Check for Shift+K
-      if (e.shiftKey && (e.code === 'KeyK' || e.key === 'K' || e.key === 'k')) {
-        e.preventDefault();
-        e.stopPropagation();
-        console.log('✓ Shift+K detected - Closing sidebar');
-        
-        // Show visual feedback
-        const header = document.querySelector('.header');
-        if (header) {
-          header.style.backgroundColor = '#e8f0fe';
-          header.style.transition = 'background-color 0.3s ease';
-        }
-        
-        // Call the Google Apps Script function to close the sidebar
-        setTimeout(function() {
-          google.script.run
-            .withSuccessHandler(function() {
-              console.log('Sidebar closed successfully');
-            })
-            .withFailureHandler(function(error) {
-              console.error('Error closing sidebar:', error);
-            })
-            .hideSidebar();
-        }, 100);
-      }
-    }
-    
-    // Attach listeners with capture phase for better event catching
-    document.addEventListener('keydown', handleKeyDown, true);
-    window.addEventListener('keydown', handleKeyDown, true);
-    document.body && document.body.addEventListener('keydown', handleKeyDown, true);
-    
-    // Also add keyup as backup
-    document.addEventListener('keyup', function(e) {
-      if (e.shiftKey && (e.code === 'KeyK' || e.key === 'K' || e.key === 'k')) {
-        console.log('Shift+K key up event');
-      }
-    }, true);
-    
-    console.log('✓ Keyboard shortcuts setup complete');
-  }
 
   // ===== AUTOCOMPLETE FEATURE =====
   let autocompleteData = [];
@@ -99,8 +60,8 @@
     const searchInput = document.getElementById('searchInput');
     const autocompleteList = document.getElementById('autocompleteList');
     
-    // Input event for showing suggestions
-    searchInput.addEventListener('input', function(e) {
+    // Input event for showing suggestions (debounced for performance)
+    searchInput.addEventListener('input', debounce(function(e) {
       if (currentFilter === 'global') {
         const query = getGlobalActiveTokenQuery_(e.target.value);
         if (!query) {
@@ -164,7 +125,7 @@
       currentAutocompleteIndex = -1;
       renderAutocompleteList(matches, query);
       autocompleteList.classList.add('show');
-    });
+    }, 150));
     
     // Keyboard navigation
     searchInput.addEventListener('keydown', function(e) {
@@ -202,9 +163,7 @@
           } else {
             autocompleteList.classList.remove('show');
             currentAutocompleteIndex = -1;
-            if (currentFilter === 'global') {
-              performSearch();
-            }
+            performSearch();
           }
           break;
         case ' ':
@@ -284,7 +243,9 @@
   }
   
   function highlightQuery(text, query) {
-    const regex = new RegExp(`(${query})`, 'gi');
+    const escaped = String(query || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (!escaped) return text;
+    const regex = new RegExp(`(${escaped})`, 'gi');
     return text.replace(regex, '<span class="autocomplete-match">$1</span>');
   }
   
@@ -417,11 +378,12 @@
     google.script.run
       .withSuccessHandler(function(data) {
         console.log('Success! Received data:', data);
-        if (data && data.lastUpdated && data.lastUpdated !== lastSeenUpdated) {
-          lastSeenUpdated = data.lastUpdated;
+        var changed = !data || !data.lastUpdated || data.lastUpdated !== lastSeenUpdated;
+        if (data && data.lastUpdated) lastSeenUpdated = data.lastUpdated;
+        if (changed) {
+          renderTags(data);
+          refreshExpandedOccurrences();
         }
-        renderTags(data);
-        refreshExpandedOccurrences();
         isRefreshing=false;
       })
       .withFailureHandler(function(error) {
@@ -545,7 +507,7 @@
           html += `
             <div class="tag-item" onclick="handleTagClick('${tag.name}', event, ${tag.count})">
               <div class="tag-main">
-                <div class="tag-dot" style="background-color:${tagColor}; flex-shrink: 0;"></div>
+          <div class="tag-dot" style="background-color:${tagColor}; flex-shrink: 0;" onclick="openColorPicker(event, '${fullPath}', '${tagColor}')"></div>
                 <span class="tag-name">#${tag.name}</span>
                 ${tag.count > 0 ? `<span class="tag-count-badge">${tag.count}</span>` : ''}
                 <span style="font-size:11px;color:#5f6368;">in this document</span>
@@ -571,7 +533,7 @@
     }
 
     const queryTags = parseTagQuery_(globalSubmittedQuery);
-    const queryKey = queryTags.join('|');
+    const queryKey = queryTags.join('|') + ':' + globalSearchMode;
 
     if (!queryTags.length) {
       content.innerHTML = `
@@ -625,6 +587,7 @@
       }
       globalSearchLoading = false;
       globalSearchError = 'Search timed out. Try syncing the index, then retry.';
+      globalSearchRequestId++;
       refreshCurrentView_();
     }, 15000);
     content.innerHTML = `
@@ -663,7 +626,7 @@
         globalSearchError = (error && error.message) ? error.message : String(error);
         refreshCurrentView_();
       })
-      .searchIndexedDocsByTags(queryTags, 'AND');
+      .searchIndexedDocsByTags(queryTags, globalSearchMode);
   }
 
   function retryGlobalSearch_() {
@@ -685,17 +648,17 @@
         <div class="empty-state">
           <div class="global-empty-icon">🔍</div>
           <div class="empty-title">No Indexed Matches</div>
-          <p class="global-empty-copy">No documents found for <strong>${queryLabel}</strong></p>
+          <p class="global-empty-copy">No documents found for <strong>${queryLabel}</strong> in ${globalSearchMode} mode</p>
         </div>
       `;
       return;
     }
 
     const sortedRows = rows.slice().sort(function(a, b) {
+      const matchDiff = Number(b.matchCount || 0) - Number(a.matchCount || 0);
+      if (matchDiff !== 0) return matchDiff;
       const countDiff = Number(b.tagCountInDoc || 0) - Number(a.tagCountInDoc || 0);
-      if (countDiff !== 0) {
-        return countDiff;
-      }
+      if (countDiff !== 0) return countDiff;
       return String(a.docTitle || '').localeCompare(String(b.docTitle || ''));
     });
 
@@ -703,22 +666,29 @@
       <div class="global-results-wrap">
         <div class="global-results-header">
           <div class="global-query-chip-list">${queryChips}</div>
-          <span class="global-result-count">${sortedRows.length} documents</span>
+          <span class="global-result-count">${sortedRows.length} document${sortedRows.length === 1 ? '' : 's'}</span>
         </div>
         <div class="global-results-list">
     `;
     sortedRows.forEach(function(row) {
-      const matchedTags = Array.isArray(row.tags) && row.tags.length
+      const matchedTagCounts = row.matchedTags && typeof row.matchedTags === 'object' ? row.matchedTags : {};
+      const matchedTagNames = Array.isArray(row.tags) && row.tags.length
         ? row.tags
-        : Object.keys(row.matchedTags || {});
-      const matchedTagChips = matchedTags.length
-        ? matchedTags.map(function(tag) {
-            return '<span class="global-match-chip">#' + escapeHtml_(tag) + '</span>';
+        : Object.keys(matchedTagCounts);
+      const matchedTagChips = matchedTagNames.length
+        ? matchedTagNames.map(function(tag) {
+            const count = Number(matchedTagCounts[tag] || 0);
+            const countLabel = count > 0 ? ' · ' + count : '';
+            return '<span class="global-match-chip">#' + escapeHtml_(tag) + countLabel + '</span>';
           }).join('')
         : '<span class="global-match-chip global-match-chip-empty">(none)</span>';
 
+      const relativeTime = formatRelativeTime_(row.lastSeenAt);
+      const stale = isStaleIndexEntry_(row.lastSeenAt);
+      const staleBadge = stale ? '<span class="global-stale-badge" title="Index entry is older than 14 days — Sync to refresh">outdated</span>' : '';
+
       html += `
-        <div class="global-result-card" onclick="event.stopPropagation()">
+        <div class="global-result-card${stale ? ' is-stale' : ''}" onclick="event.stopPropagation()">
           <div class="global-result-main">
             <div class="global-result-content">
               <div class="global-result-top">
@@ -727,7 +697,7 @@
               </div>
               <div class="global-result-tags">${matchedTagChips}</div>
               <div class="global-result-footer">
-                <span class="global-result-meta">Last indexed: ${escapeHtml_(row.lastSeenAt || '')}</span>
+                <span class="global-result-meta">Indexed ${escapeHtml_(relativeTime)}${staleBadge}</span>
                 <a class="global-result-link" href="${escapeHtml_(row.docUrl || '#')}" target="_blank" rel="noopener noreferrer">Open</a>
               </div>
             </div>
@@ -737,6 +707,43 @@
     });
     html += '</div></div>';
     content.innerHTML = html;
+  }
+
+  function formatRelativeTime_(iso) {
+    if (!iso) return 'just now';
+    const then = new Date(iso).getTime();
+    if (!isFinite(then)) return String(iso);
+    const diff = Date.now() - then;
+    if (diff < 60 * 1000) return 'just now';
+    if (diff < 60 * 60 * 1000) {
+      const mins = Math.floor(diff / (60 * 1000));
+      return mins + ' minute' + (mins === 1 ? '' : 's') + ' ago';
+    }
+    if (diff < 24 * 60 * 60 * 1000) {
+      const hrs = Math.floor(diff / (60 * 60 * 1000));
+      return hrs + ' hour' + (hrs === 1 ? '' : 's') + ' ago';
+    }
+    if (diff < 30 * 24 * 60 * 60 * 1000) {
+      const days = Math.floor(diff / (24 * 60 * 60 * 1000));
+      return days + ' day' + (days === 1 ? '' : 's') + ' ago';
+    }
+    const months = Math.floor(diff / (30 * 24 * 60 * 60 * 1000));
+    return months + ' month' + (months === 1 ? '' : 's') + ' ago';
+  }
+
+  function isStaleIndexEntry_(iso) {
+    if (!iso) return false;
+    const then = new Date(iso).getTime();
+    if (!isFinite(then)) return false;
+    return (Date.now() - then) > GLOBAL_STALE_MS;
+  }
+
+  function toggleGlobalSearchMode_() {
+    globalSearchMode = globalSearchMode === 'AND' ? 'OR' : 'AND';
+    globalSearchTerm = '';
+    globalSearchResults = null;
+    updateGlobalHeaderAction_();
+    refreshCurrentView_();
   }
 
   function normalizeTagQuery_(raw) {
@@ -797,6 +804,13 @@
     return '<button class="global-search-sync-btn" aria-label="Sync index" onclick="syncGlobalIndexFromSidebar_(event)" ' + disabled + title + '>' + label + '</button>';
   }
 
+  function getGlobalModeToggleHtml_() {
+    const titleText = globalSearchMode === 'AND'
+      ? 'Matching all tags — click to switch to ANY'
+      : 'Matching any tag — click to switch to ALL';
+    return '<button class="global-search-mode-btn" aria-label="Toggle match mode" title="' + escapeHtml_(titleText) + '" onclick="toggleGlobalSearchMode_()">' + escapeHtml_(globalSearchMode) + '</button>';
+  }
+
   function updateGlobalHeaderAction_() {
     const container = document.getElementById('globalSearchAction');
     if (!container) {
@@ -807,7 +821,7 @@
       container.classList.remove('show');
       return;
     }
-    container.innerHTML = getGlobalSyncButtonHtml_();
+    container.innerHTML = getGlobalModeToggleHtml_() + getGlobalSyncButtonHtml_();
     container.classList.add('show');
   }
 
@@ -957,39 +971,53 @@
     return tree;
   }
 
+  function getTagColorFromAllTags_(tagName) {
+    if (!allTags || !allTags.projects) return '#9aa0a6';
+    for (var i = 0; i < allTags.projects.length; i++) {
+      var project = allTags.projects[i];
+      if (project.tags) {
+        for (var j = 0; j < project.tags.length; j++) {
+          if (project.tags[j].name === tagName && project.tags[j].color) {
+            return project.tags[j].color;
+          }
+        }
+      }
+    }
+    return '#9aa0a6';
+  }
+
   function renderTagNode(node, key, depth, projectId) {
     if (!node) return '';
-    
+
     const tag = node.tag;
     const fullPath = node.fullPath;
     const hasChildren = Object.keys(node.children).length > 0;
     const isIntermediate = node.isIntermediate && !tag; // Intermediate if no tag but has children
     const isGroupNode = isIntermediate && hasChildren;
     const hasExplicitExpandState = expandedTags && Object.prototype.hasOwnProperty.call(expandedTags, fullPath);
-    const isExpanded = isGroupNode
-      ? (hasExplicitExpandState ? !!expandedTags[fullPath] : true)
-      : (expandedTags && !!expandedTags[fullPath]);
-    
+    const isExpanded = expandedTags && !!expandedTags[fullPath];
+
     // Group nodes and real parent tags should both be expandable.
     const shouldShowExpandButton = hasChildren && (tag || isGroupNode);
-    const tagColor = tag ? tag.color : '#9aa0a6';
+    const tagColor = (tag && tag.color) ? tag.color : getTagColorFromAllTags_(fullPath);
     const tagCount = tag ? tag.count : 0;
-    const occurrenceCount = tag ? (tagCount || getBookmarkCount(fullPath)) : 0;
+    const occurrenceCount = tag ? (tagCount || 0) : 0;
     const showOccurrences = occurrenceCount > 1 && expandedOccurrences[fullPath];
     const hasMultipleOccurrences = occurrenceCount > 1;
     const visualDepth = Math.min(depth, 4);
-    const rowClickHandler = isGroupNode
+    const rowClickHandler = (isGroupNode || hasChildren)
       ? `toggleNestedTag('${fullPath}', event)`
       : `handleTagClick('${fullPath}', event, ${occurrenceCount})`;
 
+    const nestedClass = depth > 0 ? 'tag-item-nested' : '';
+
     let html = `
-      <div class="tag-item ${hasChildren ? 'parent-tag' : ''} ${isGroupNode ? 'tag-group-node' : ''}" data-depth="${depth}" style="--tag-depth:${visualDepth};" onclick="${rowClickHandler}">
+      <div class="tag-item ${nestedClass} ${hasChildren ? 'parent-tag' : ''} ${isGroupNode ? 'tag-group-node' : ''}" data-depth="${depth}" onclick="${rowClickHandler}">
         <div class="tag-main">
-          ${shouldShowExpandButton ? `<span class="tag-expand-icon ${isExpanded ? 'expanded' : ''}" onclick="toggleNestedTag('${fullPath}', event)" title="Toggle children">▶</span>` : '<span style="width:20px;"></span>'}
-          <div class="tag-dot" style="background-color:${tagColor}; flex-shrink: 0;"></div>
-          <span class="tag-name" title="#${fullPath}">#${isLocalSearchActive_() ? fullPath : key}</span>
-          ${tagCount > 0 ? `<span class="tag-count-badge">${tagCount}</span>` : ''}
-          ${hasMultipleOccurrences && !isGroupNode ? `<span class="tag-occurrence-toggle ${showOccurrences ? 'expanded' : ''}" onclick="toggleTagOccurrences('${fullPath}', event, ${occurrenceCount})" title="Toggle occurrences">◎</span>` : ''}
+          ${shouldShowExpandButton ? `<span class="tag-expand-icon ${isExpanded ? 'expanded' : ''}" onclick="toggleNestedTag('${fullPath}', event)" title="Toggle children">▶</span>` : `<span style="width:18px;"></span>`}
+          <div class="tag-dot" style="background-color:${tagColor}; flex-shrink: 0;" onclick="openColorPicker(event, '${fullPath}', '${tagColor}')"></div>
+          <span class="tag-name" title="#${fullPath}">${hasChildren && !isGroupNode && occurrenceCount === 1 ? `<span class="tag-name-link" onclick="event.stopPropagation(); jumpToTag('${fullPath}', 0)">#${isLocalSearchActive_() ? fullPath : key}</span>` : `#${isLocalSearchActive_() ? fullPath : key}`}</span>
+          ${tagCount > 0 && !isGroupNode ? (hasMultipleOccurrences ? `<span class="tag-count-badge has-occurrences ${showOccurrences ? 'expanded' : ''}" onclick="toggleTagOccurrences('${fullPath}', event, ${occurrenceCount})" title="Show all occurrences">${tagCount}<span class="tag-count-chevron">▾</span></span>` : `<span class="tag-count-badge">${tagCount}</span>`) : (tagCount > 0 && isGroupNode ? `<span class="tag-count-badge">${tagCount}</span>` : '')}
         </div>
       </div>
     `;
@@ -997,10 +1025,10 @@
     if (showOccurrences) {
       html += renderOccurrencesList(fullPath, occurrenceCount, tagColor);
     }
-    
+
     // Render children if expanded
     if (isExpanded && hasChildren) {
-      html += '<div class="nested-children">';
+      html += `<div class="nested-children" style="--parent-color: ${tagColor}">`;
       Object.keys(node.children).sort().forEach(childKey => {
         html += renderTagNode(node.children[childKey], childKey, depth + 1, projectId);
       });
@@ -1019,16 +1047,38 @@
     const tagTree = buildTagTree(project.tags);
     
     let html = '<div class="tags-list">';
-    
-    // Render all root-level tags
-    Object.keys(tagTree).forEach(key => {
+
+    const rootKeys = Object.keys(tagTree).sort((a, b) => {
+      if (currentSort === 'count') {
+        const countA = tagTree[a].tag ? tagTree[a].tag.count : 0;
+        const countB = tagTree[b].tag ? tagTree[b].tag.count : 0;
+        if (countB !== countA) return countB - countA;
+      }
+      return a.localeCompare(b);
+    });
+
+    rootKeys.forEach((key, index) => {
+      if (index > 0) html += '<div class="tag-group-separator"></div>';
       html += renderTagNode(tagTree[key], key, 0, project.id);
     });
-    
+
     html += '</div>';
     return html;
   }
   
+  function toggleSort() {
+    currentSort = currentSort === 'alpha' ? 'count' : 'alpha';
+    const btn = document.getElementById('sortToggleBtn');
+    if (currentSort === 'alpha') {
+      btn.textContent = 'A–Z ↕';
+      btn.title = 'Sort by count';
+    } else {
+      btn.textContent = '# ↕';
+      btn.title = 'Sort A–Z';
+    }
+    refreshCurrentView_();
+  }
+
   function toggleNestedTag(parentName, event) {
     if (event) event.stopPropagation();
     if (!expandedTags) expandedTags = {};
@@ -1062,6 +1112,11 @@
       ensureGlobalAutocompleteCatalog_();
     }
     updateGlobalHeaderAction_();
+    const contentBar = document.getElementById('contentBar');
+    if (contentBar) {
+      if (filter === 'global') contentBar.classList.add('hidden');
+      else contentBar.classList.remove('hidden');
+    }
     if (allTags) renderTags(allTags);
   }
 
@@ -1085,30 +1140,31 @@
     if (items && items.length) {
       items.forEach(function(item, i) {
         let snippetText = item.snippet ? item.snippet : '...';
-        if (snippetText.length > 30) {
-          snippetText = snippetText.slice(0, 30).trimEnd() + '...';
+        if (snippetText.length > 32) {
+          snippetText = snippetText.slice(0, 32).trimEnd() + '…';
         }
         html += `
           <div class="occurrence-item" onclick="jumpToTag('${tagName}', ${i}); event.stopPropagation();">
-            <div class="tag-dot" style="background-color:${tagColor}; flex-shrink: 0;"></div>
-            <div class="tag-name">${snippetText}</div>
+            <span class="occurrence-num">${i + 1}</span>
+            <span class="occurrence-snippet">${snippetText}</span>
+            <span class="occurrence-arrow">→</span>
           </div>
         `;
       });
     } else if (isLoading) {
       html += `
         <div class="occurrence-item">
-          <div class="tag-dot" style="background-color:${tagColor}; flex-shrink: 0;"></div>
-          <span class="tag-name">Loading occurrences...</span>
+          <span class="occurrence-num">…</span>
+          <span class="occurrence-snippet">Loading…</span>
         </div>
       `;
     } else {
       for (let i = 0; i < occurrenceCount; i++) {
-        const label = 'Occurrence ' + (i + 1);
         html += `
           <div class="occurrence-item" onclick="jumpToTag('${tagName}', ${i}); event.stopPropagation();">
-            <div class="tag-dot" style="background-color:${tagColor}; flex-shrink: 0;"></div>
-            <span class="tag-name">${label}</span>
+            <span class="occurrence-num">${i + 1}</span>
+            <span class="occurrence-snippet">Jump to occurrence ${i + 1}</span>
+            <span class="occurrence-arrow">→</span>
           </div>
         `;
       }
@@ -1126,19 +1182,18 @@
     });
   }
 
-  function getBookmarkCount(tagName) {
-    if (!allTags || !allTags.bookmarkCounts) return 0;
-    return allTags.bookmarkCounts[tagName] || 0;
-  }
-
   function handleTagClick(tagName, event, occurrenceCount) {
     if (event) event.stopPropagation();
-    jumpToTag(tagName, 0);
+    if (occurrenceCount > 1) {
+      toggleTagOccurrences(tagName, event, occurrenceCount);
+    } else {
+      jumpToTag(tagName, 0);
+    }
   }
 
   function toggleTagOccurrences(tagName, event, occurrenceCount) {
     if (event) event.stopPropagation();
-    const count = typeof occurrenceCount === 'number' ? occurrenceCount : getBookmarkCount(tagName);
+    const count = typeof occurrenceCount === 'number' ? occurrenceCount : 0;
     if (count <= 1) {
       jumpToTag(tagName, 0);
       return;
@@ -1180,6 +1235,80 @@
         console.error('Error navigating to tag:', error);
       })
       .jumpToTagBookmark(tagName, occurrenceIndex || 0);
+  }
+
+  // ── Color picker ──
+  const COLOR_SWATCHES = [
+    { value: '#1A73E8', name: 'Blue' },
+    { value: '#34A853', name: 'Green' },
+    { value: '#FBBC04', name: 'Yellow' },
+    { value: '#EA4335', name: 'Red' },
+    { value: '#9334E9', name: 'Purple' },
+    { value: '#0891B2', name: 'Cyan' }
+  ];
+  let colorPickerTarget = null;
+
+  function openColorPicker(event, tagName, currentColor) {
+    if (event) event.stopPropagation();
+    var popup = document.getElementById('colorPopup');
+    colorPickerTarget = tagName;
+    var swatches = COLOR_SWATCHES.map(function(c) {
+      var activeClass = c.value.toLowerCase() === (currentColor || '').toLowerCase() ? ' active' : '';
+      return '<div class="color-swatch' + activeClass + '" style="background-color:' + c.value + ';" title="' + c.name + '" onclick="selectColor(event, \'' + c.value + '\')"></div>';
+    }).join('');
+    var closeBtn = '<div class="color-close" title="Close" onclick="closeColorPicker(event)"><svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></div>';
+    popup.innerHTML = swatches + closeBtn;
+
+    var dot = event.target;
+    var rect = dot.getBoundingClientRect();
+    popup.style.left = rect.left + 'px';
+    popup.style.top = (rect.bottom + 6) + 'px';
+    popup.classList.add('show');
+
+    document.addEventListener('click', closeColorPickerOnClickOutside);
+  }
+
+  function closeColorPicker(event) {
+    if (event) event.stopPropagation();
+    var popup = document.getElementById('colorPopup');
+    popup.classList.remove('show');
+    colorPickerTarget = null;
+    document.removeEventListener('click', closeColorPickerOnClickOutside);
+  }
+
+  function closeColorPickerOnClickOutside(e) {
+    var popup = document.getElementById('colorPopup');
+    if (!popup.contains(e.target)) {
+      closeColorPicker();
+    }
+  }
+
+  function selectColor(event, color) {
+    if (event) event.stopPropagation();
+    var tagName = colorPickerTarget;
+    if (!tagName) return;
+    document.getElementById('colorPopup').classList.remove('show');
+    colorPickerTarget = null;
+    document.removeEventListener('click', closeColorPickerOnClickOutside);
+
+    isRefreshing = true;
+    google.script.run
+      .withSuccessHandler(function() {
+        if (allTags && allTags.projects) {
+          allTags.projects.forEach(function(project) {
+            (project.tags || []).forEach(function(tag) {
+              if (tag.name === tagName) tag.color = color;
+            });
+          });
+        }
+        refreshCurrentView_();
+        setTimeout(function() { isRefreshing = false; }, 3000);
+      })
+      .withFailureHandler(function(err) {
+        isRefreshing = false;
+        console.error('Failed to save color:', err);
+      })
+      .saveTagColor(tagName, color);
   }
 
 </script>

@@ -4,6 +4,7 @@ const {
   escapeTagForRegex,
   isTagBoundary,
   getRandomColor,
+  saveTagColor,
 } = require('../TagService');
 
 // ─── Globals required by TagService ──────────────────────────────────────────
@@ -15,6 +16,15 @@ beforeEach(() => {
     DigestAlgorithm: { MD5: 'MD5' },
   };
   global.Logger = { log: jest.fn() };
+  global.PropertiesService = {
+    getDocumentProperties: jest.fn().mockReturnValue({
+      getProperty: jest.fn(),
+      setProperty: jest.fn(),
+    })
+  };
+  global.Session = {
+    getActiveUser: jest.fn().mockReturnValue({ getEmail: jest.fn().mockReturnValue('test@example.com') })
+  };
 });
 
 // ─── extractHashtagsFromText_ ─────────────────────────────────────────────────
@@ -138,5 +148,39 @@ describe('getRandomColor', () => {
     for (let i = 0; i < 20; i++) {
       expect(VALID_COLORS).toContain(getRandomColor());
     }
+  });
+});
+
+// ─── saveTagColor ─────────────────────────────────────────────────────────────
+
+describe('saveTagColor', () => {
+  test('updates color on existing metadata', () => {
+    const mockProps = {
+      getProperty: jest.fn().mockReturnValue(JSON.stringify({ color: '#1A73E8', created: '2024-01-01' })),
+      setProperty: jest.fn(),
+    };
+    global.PropertiesService.getDocumentProperties.mockReturnValue(mockProps);
+
+    const result = saveTagColor('biology', '#34A853');
+    expect(result.success).toBe(true);
+    expect(mockProps.setProperty).toHaveBeenCalledWith(
+      'tag_biology',
+      expect.stringContaining('#34A853')
+    );
+  });
+
+  test('creates metadata if none exists', () => {
+    const mockProps = {
+      getProperty: jest.fn().mockReturnValue(null),
+      setProperty: jest.fn(),
+    };
+    global.PropertiesService.getDocumentProperties.mockReturnValue(mockProps);
+
+    const result = saveTagColor('newtag', '#EA4335');
+    expect(result.success).toBe(true);
+    expect(mockProps.setProperty).toHaveBeenCalledWith(
+      'tag_newtag',
+      expect.stringContaining('#EA4335')
+    );
   });
 });

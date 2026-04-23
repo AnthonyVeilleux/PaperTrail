@@ -9,7 +9,6 @@
 </head>
 <body>
   <div class="header">
-    <div class="header-title">🏷️ PaperTrail</div>
     <div class="search-container">
       <input type="text" class="search-input" id="searchInput" placeholder="Search tags...">
       <div class="autocomplete-list" id="autocompleteList"></div>
@@ -21,6 +20,11 @@
     </div>
   </div>
 
+  <div class="content-bar" id="contentBar">
+    <span class="content-bar-label">Tags</span>
+    <button id="sortToggleBtn" class="sort-link-btn" onclick="toggleSort()" title="Sort by count">A–Z ↕</button>
+  </div>
+
   <div class="content" id="content">
     <div class="loading">
       <div class="spinner"></div>
@@ -28,8 +32,11 @@
     </div>
   </div>
 
+  <!-- Color picker popup -->
+  <div class="color-popup" id="colorPopup"></div>
+
   <!-- Include JavaScript from Scripts.html -->
   <?!= include('Scripts') ?>
-  
+
 </body>
 </html>
