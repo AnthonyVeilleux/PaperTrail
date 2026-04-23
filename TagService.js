@@ -199,7 +199,7 @@ function getAllTags() {
       globalTags: globalTags,
       documentTags: documentTags,
       hierarchy: documentTags.hierarchy || {},
-      lastUpdated: allProps['tags_last_updated'] || new Date().toISOString()
+      lastUpdated: computeTagStateSignature_(documentTags.tags, allProps, pendingWrites)
     };
 
   } catch (e) {
@@ -210,6 +210,24 @@ function getAllTags() {
       documentTags: { tags: {}, hierarchy: {} }
     };
   }
+}
+
+// Deterministic fingerprint of the doc's tag state so the sidebar poll can
+// detect count/color/rename changes — not just the discovery of new tags.
+function computeTagStateSignature_(tagCounts, allProps, pendingWrites) {
+  var names = Object.keys(tagCounts || {}).sort();
+  var parts = [];
+  for (var i = 0; i < names.length; i++) {
+    var name = names[i];
+    var metaKey = 'tag_' + name;
+    var raw = (pendingWrites && pendingWrites[metaKey]) || (allProps && allProps[metaKey]) || '';
+    var color = '';
+    if (raw) {
+      try { color = (JSON.parse(raw).color) || ''; } catch (e) {}
+    }
+    parts.push(name + ':' + tagCounts[name] + ':' + color);
+  }
+  return parts.join('|');
 }
 
 /**
