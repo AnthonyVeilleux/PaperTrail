@@ -326,10 +326,9 @@
         flex-shrink: 0;
         margin-left: 2px;
       }
-      .check-row label {
+      .check-row span {
         font-size: 13px;
         color: var(--text-primary);
-        cursor: pointer;
         line-height: 1.3;
       }
 
@@ -511,18 +510,18 @@
           <span class="field-label-text">Options</span>
         </div>
         <div class="check-group">
-          <div class="check-row" onclick="document.getElementById('includeMetadata').click()">
+          <label class="check-row" for="includeMetadata">
             <input type="checkbox" id="includeMetadata" checked>
-            <label for="includeMetadata">Include document header</label>
-          </div>
-          <div class="check-row" onclick="document.getElementById('includeDividers').click()">
+            <span>Include document header</span>
+          </label>
+          <label class="check-row" for="includeDividers">
             <input type="checkbox" id="includeDividers" checked>
-            <label for="includeDividers">Include tag section headers</label>
-          </div>
-          <div class="check-row" onclick="document.getElementById('includeSource').click()">
+            <span>Include tag section headers</span>
+          </label>
+          <label class="check-row" for="includeSource">
             <input type="checkbox" id="includeSource" checked>
-            <label for="includeSource">Include link to source document</label>
-          </div>
+            <span>Include link to source document</span>
+          </label>
         </div>
       </div>
     </div>
