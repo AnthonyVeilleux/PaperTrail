@@ -5,354 +5,603 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
+    :root {
+      --font: 'Google Sans', 'Google Sans Text', Roboto, Arial, sans-serif;
+      --blue: #1a73e8;
+      --blue-hover: #1967d2;
+      --blue-bg: #e8f0fe;
+      --blue-bg-hover: #d2e3fc;
+      --blue-text: #174ea6;
+      --text-primary: #202124;
+      --text-secondary: #5f6368;
+      --text-muted: #80868b;
+      --border: #dadce0;
+      --border-soft: #e8eaed;
+      --surface: #f8f9fa;
+      --surface-hover: #f1f3f4;
+      --error: #c5221f;
+      --success: #137333;
+      --radius-sm: 4px;
+      --radius: 8px;
+      --radius-pill: 20px;
+      --shadow: 0 1px 2px 0 rgba(60,64,67,0.1), 0 1px 3px 1px rgba(60,64,67,0.15);
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body { height: 100%; }
     body {
-      margin: 0;
-      padding: 16px;
-      font-family: Arial, sans-serif;
-      color: #202124;
-      background: #f8f9fa;
-    }
-
-    .header {
-      margin-bottom: 14px;
-    }
-
-    .subtitle {
-      margin: 0;
-      font-size: 13px;
-      color: #5f6368;
-    }
-
-    .explain {
-      margin-top: 10px;
-      padding: 10px;
-      border: 1px solid #dadce0;
-      border-radius: 8px;
+      font-family: var(--font);
+      font-size: 14px;
+      line-height: 1.4;
+      color: var(--text-primary);
       background: #fff;
-      font-size: 12px;
-      color: #3c4043;
-      line-height: 1.45;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
     }
 
-    .hint {
-      margin-top: 8px;
-      font-size: 11px;
-      color: #5f6368;
+    /* ── Header ── */
+    .header { padding: 20px 24px 16px; flex-shrink: 0; }
+    .header-title {
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--text-primary);
+      letter-spacing: -0.01em;
+    }
+    .header-subtitle {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-top: 2px;
       line-height: 1.4;
     }
 
-    .card {
-      background: #fff;
-      border: 1px solid #dadce0;
-      border-radius: 10px;
-      padding: 12px;
+    /* ── Add block ── */
+    .add-block { padding: 0 24px 16px; flex-shrink: 0; }
+
+    .seg-toggle {
+      display: inline-flex;
+      background: var(--surface);
+      border-radius: var(--radius-pill);
+      padding: 3px;
+      gap: 2px;
       margin-bottom: 12px;
     }
-
-    .card h3 {
-      margin: 0 0 10px;
-      font-size: 14px;
+    .seg-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      font-size: 13px;
+      font-weight: 500;
+      font-family: var(--font);
+      color: var(--text-secondary);
+      background: transparent;
+      border: 0;
+      border-radius: var(--radius-pill);
+      cursor: pointer;
+      transition: background 0.12s, color 0.12s, box-shadow 0.12s;
     }
+    .seg-btn svg { width: 16px; height: 16px; fill: currentColor; }
+    .seg-btn.active {
+      background: #fff;
+      color: var(--text-primary);
+      box-shadow: 0 1px 2px rgba(60,64,67,0.15);
+    }
+    .seg-btn:not(.active):hover { color: var(--text-primary); }
 
-    .row {
+    .input-row {
       display: flex;
       gap: 8px;
+      align-items: stretch;
     }
-
-    .row input {
+    .input-wrap {
       flex: 1;
-      padding: 9px 10px;
-      border: 1px solid #dadce0;
-      border-radius: 8px;
-      font-size: 13px;
+      position: relative;
+    }
+    .input-wrap input {
+      width: 100%;
+      height: 40px;
+      padding: 0 14px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 14px;
+      font-family: var(--font);
+      color: var(--text-primary);
+      background: #fff;
+      outline: none;
+      transition: border-color 0.12s, box-shadow 0.12s;
+    }
+    .input-wrap input::placeholder { color: var(--text-muted); }
+    .input-wrap input:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 1px var(--blue);
     }
 
-    button {
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      height: 40px;
+      padding: 0 22px;
       border: 0;
-      border-radius: 8px;
-      padding: 9px 12px;
+      border-radius: var(--radius-pill);
       font-size: 13px;
-      font-weight: 600;
+      font-weight: 500;
+      font-family: var(--font);
       cursor: pointer;
-      background: #1a73e8;
-      color: #fff;
+      transition: background 0.12s, box-shadow 0.12s, opacity 0.12s;
+      white-space: nowrap;
     }
+    .btn svg { width: 18px; height: 18px; fill: currentColor; }
+    .btn:disabled { opacity: 0.5; cursor: default; }
+    .btn-primary { background: var(--blue); color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: var(--blue-hover); box-shadow: var(--shadow); }
+    .btn-tonal { background: var(--blue-bg); color: var(--blue-text); }
+    .btn-tonal:hover:not(:disabled) { background: var(--blue-bg-hover); }
 
-    button.secondary {
-      background: #e8f0fe;
-      color: #174ea6;
+    .quick-add {
+      width: 100%;
+      margin-bottom: 12px;
     }
+    .quick-add .btn-primary {
+      width: 100%;
+      height: 44px;
+      font-size: 14px;
+      border-radius: var(--radius);
+      justify-content: center;
+      gap: 8px;
+    }
+    .quick-add .btn-primary svg { width: 20px; height: 20px; }
 
-    button.remove {
-      background: #fce8e6;
-      color: #a50e0e;
-      padding: 6px 8px;
+    .or-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .or-row::before, .or-row::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border-soft);
+    }
+    .or-label {
       font-size: 12px;
+      color: var(--text-muted);
+      white-space: nowrap;
     }
 
-    .status {
-      min-height: 18px;
+    /* ── Divider ── */
+    .divider { height: 1px; background: var(--border-soft); }
+
+    /* ── Lists ── */
+    .lists {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 12px;
+      min-height: 0;
+    }
+    .lists::-webkit-scrollbar { width: 8px; }
+    .lists::-webkit-scrollbar-thumb { background: var(--surface-hover); border-radius: 4px; }
+    .lists::-webkit-scrollbar-thumb:hover { background: var(--border); }
+
+    .list-group { padding: 6px 0 10px; }
+    .list-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px 6px;
+    }
+    .list-header-title {
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+    .list-header-count {
       font-size: 12px;
-      margin-top: 8px;
-    }
-
-    .status.error {
-      color: #a50e0e;
-    }
-
-    .status.ok {
-      color: #137333;
+      color: var(--text-muted);
     }
 
     .list {
-      margin: 0;
-      padding: 0;
       list-style: none;
       display: flex;
       flex-direction: column;
-      gap: 8px;
-      max-height: 180px;
-      overflow: auto;
+      gap: 2px;
     }
 
     .list-item {
-      background: #fff;
-      border: 1px solid #dadce0;
-      border-radius: 8px;
-      padding: 10px;
       display: flex;
-      justify-content: space-between;
-      gap: 8px;
       align-items: center;
+      gap: 12px;
+      padding: 8px 12px;
+      border-radius: var(--radius);
+      transition: background 0.12s;
+      position: relative;
     }
+    .list-item:hover { background: var(--surface); }
+    .list-item:hover .item-remove { opacity: 1; }
 
-    .item-main {
-      min-width: 0;
+    .item-icon {
+      flex-shrink: 0;
+      width: 36px;
+      height: 36px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      background: var(--blue-bg);
+      color: var(--blue);
     }
+    .item-icon svg { width: 20px; height: 20px; fill: currentColor; }
 
+    .item-main { flex: 1; min-width: 0; }
     .item-title {
-      font-size: 13px;
-      font-weight: 600;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-primary);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
-
     .item-meta {
       font-size: 12px;
-      color: #5f6368;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .item-meta a {
-      color: #1a73e8;
-      text-decoration: none;
-    }
-
-    .item-meta a:hover {
-      text-decoration: underline;
-    }
-
-    .item-warn {
-      margin-top: 4px;
-      font-size: 11px;
-      color: #a50e0e;
-    }
-
-    .footer-actions {
+      color: var(--text-secondary);
+      margin-top: 2px;
       display: flex;
-      justify-content: flex-end;
-      gap: 8px;
-      margin-top: 12px;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+    .item-meta a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .item-meta a:hover { color: var(--blue); }
+    .item-meta a svg { width: 12px; height: 12px; fill: currentColor; opacity: 0.75; }
+    .item-warn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 12px;
+      color: var(--error);
+      margin-top: 2px;
+    }
+    .item-warn svg { width: 14px; height: 14px; fill: currentColor; }
+
+    .item-remove {
+      flex-shrink: 0;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: transparent;
+      border: 0;
+      color: var(--text-secondary);
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.12s, background 0.12s, color 0.12s;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .item-remove svg { width: 18px; height: 18px; fill: currentColor; }
+    .item-remove:hover { background: rgba(60,64,67,0.08); color: var(--error); }
+    .item-remove:focus { opacity: 1; outline: 2px solid var(--blue); outline-offset: 1px; }
+
+    .empty-state {
+      padding: 10px 12px;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    /* ── Footer ── */
+    .footer {
+      flex-shrink: 0;
+      padding: 12px 24px 16px;
+      border-top: 1px solid var(--border-soft);
+      background: #fff;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .status {
+      flex: 1;
+      font-size: 12px;
+      color: var(--text-secondary);
+      min-height: 18px;
+      line-height: 1.4;
+    }
+    .status.error { color: var(--error); }
+    .status.ok { color: var(--success); }
+
+    .spin { animation: spin 0.8s linear infinite; transform-origin: 50% 50%; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .lists-content.hidden { display: none; }
+    .lists-loading {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 48px 20px;
+      gap: 12px;
+      color: var(--text-secondary);
+      font-size: 13px;
+    }
+    .lists-loading.show { display: flex; }
+    .spinner {
+      width: 28px;
+      height: 28px;
+      border: 2px solid var(--border-soft);
+      border-top-color: var(--blue);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
     }
   </style>
 </head>
 <body>
 
-  <div class="card">
-    <h3>Include A Folder</h3>
-    <div class="row">
-      <input id="folderInput" placeholder="Paste folder URL or ID">
-      <button onclick="addFolder()">Include Folder</button>
-      <button class="secondary" onclick="addCurrentParentFolder()">Use Current Doc Folder</button>
+  <div class="header">
+    <div class="header-title">Index scope</div>
+    <div class="header-subtitle">Choose which folders and documents appear in Global search.</div>
+  </div>
+
+  <div class="add-block">
+    <div class="seg-toggle" role="tablist">
+      <button class="seg-btn active" id="segFolder" role="tab" type="button" onclick="setMode('folder')">
+        <svg viewBox="0 0 24 24"><path d="M10 4H4c-1.11 0-2 .89-2 2v12c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2h-8l-2-2z"/></svg>
+        Folder
+      </button>
+      <button class="seg-btn" id="segDoc" role="tab" type="button" onclick="setMode('doc')">
+        <svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11z"/></svg>
+        Document
+      </button>
     </div>
-    <div class="hint">All Google Docs in that folder become searchable in Global.</div>
-  </div>
 
-  <div class="card">
-    <h3>Include A Single Document</h3>
-    <div class="row">
-      <input id="docInput" placeholder="Paste Google Doc URL or ID">
-      <button onclick="addDoc()">Include Doc</button>
-      <button class="secondary" onclick="addCurrentDoc()">Use Current Doc</button>
+    <div class="quick-add">
+      <button class="btn btn-primary" id="shortcutBtn" type="button" onclick="useCurrent()">
+        <svg viewBox="0 0 24 24"><path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>
+        <span id="shortcutText">Use this document's parent folder</span>
+      </button>
     </div>
-    <div class="hint">Use this when you only want specific docs indexed instead of whole folders.</div>
+
+    <div class="or-row"><span class="or-label">or paste a URL / ID</span></div>
+
+    <div class="input-row">
+      <div class="input-wrap">
+        <input id="addInput" type="text" placeholder="Google Drive folder URL or ID" autocomplete="off" spellcheck="false">
+      </div>
+      <button class="btn btn-primary" id="addBtn" type="button" onclick="submitAdd()">Add</button>
+    </div>
   </div>
 
-  <div class="status" id="status"></div>
+  <div class="divider"></div>
 
-  <div class="card">
-    <h3>Included Folders <span id="folderCount"></span></h3>
-    <ul id="folderList" class="list"></ul>
+  <div class="lists">
+    <div class="lists-content" id="listsContent">
+      <div class="list-group" id="folderGroup">
+        <div class="list-header">
+          <span class="list-header-title">Folders</span>
+          <span class="list-header-count" id="folderCount"></span>
+        </div>
+        <ul id="folderList" class="list"></ul>
+      </div>
+
+      <div class="list-group" id="docGroup">
+        <div class="list-header">
+          <span class="list-header-title">Documents</span>
+          <span class="list-header-count" id="docCount"></span>
+        </div>
+        <ul id="docList" class="list"></ul>
+      </div>
+    </div>
+    <div class="lists-loading" id="listsLoading">
+      <div class="spinner"></div>
+      <div>Loading index scope…</div>
+    </div>
   </div>
 
-  <div class="card">
-    <h3>Included Single Docs <span id="docCount"></span></h3>
-    <ul id="docList" class="list"></ul>
-  </div>
-
-  <div class="footer-actions">
-    <button class="secondary" onclick="runBackfill()">Sync Index Now</button>
-    <button class="secondary" onclick="google.script.host.close()">Close</button>
+  <div class="footer">
+    <div class="status" id="status"></div>
+    <button class="btn btn-tonal" id="syncBtn" type="button" onclick="runBackfill()">
+      <svg id="syncIcon" viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>
+      Sync index
+    </button>
   </div>
 
   <script>
-    function setStatus(message, isError) {
+    var currentMode = 'folder';
+
+    function setMode(mode) {
+      currentMode = mode;
+      document.getElementById('segFolder').classList.toggle('active', mode === 'folder');
+      document.getElementById('segDoc').classList.toggle('active', mode === 'doc');
+      var input = document.getElementById('addInput');
+      input.placeholder = mode === 'folder'
+        ? 'Google Drive folder URL or ID'
+        : 'Google Doc URL or ID';
+      document.getElementById('shortcutText').textContent = mode === 'folder'
+        ? "Use this document's parent folder"
+        : 'Use this document';
+      input.focus();
+    }
+
+    function setStatus(message, kind) {
       var el = document.getElementById('status');
       el.textContent = message || '';
-      el.className = 'status ' + (isError ? 'error' : 'ok');
+      el.className = 'status ' + (kind || '');
     }
 
     function escapeHtml(value) {
       return String(value || '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
-    function renderList(targetId, items, removeFnName) {
+    function svgFolder() {
+      return '<svg viewBox="0 0 24 24"><path d="M10 4H4c-1.11 0-2 .89-2 2v12c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2h-8l-2-2z"/></svg>';
+    }
+    function svgDoc() {
+      return '<svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11z"/></svg>';
+    }
+    function svgOpen() {
+      return '<svg viewBox="0 0 24 24"><path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>';
+    }
+    function svgClose() {
+      return '<svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>';
+    }
+    function svgWarn() {
+      return '<svg viewBox="0 0 24 24"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>';
+    }
+
+    function renderList(targetId, items, removeFnName, kind) {
       var target = document.getElementById(targetId);
       if (!items.length) {
-        target.innerHTML = '<li class="list-item"><div class="item-main"><div class="item-meta">No items configured.</div></div></li>';
+        target.innerHTML = '<li><div class="empty-state">None configured yet.</div></li>';
         return;
       }
-
+      var iconSvg = kind === 'folder' ? svgFolder() : svgDoc();
       target.innerHTML = items.map(function(item) {
-        var warning = item.valid ? '' : '<div class="item-warn">Access check failed</div>';
+        var warn = item.valid ? '' : '<div class="item-warn">' + svgWarn() + '<span>Access check failed</span></div>';
         return (
           '<li class="list-item">' +
+            '<span class="item-icon">' + iconSvg + '</span>' +
             '<div class="item-main">' +
               '<div class="item-title">' + escapeHtml(item.name) + '</div>' +
-              '<div class="item-meta"><a href="' + escapeHtml(item.url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(item.id) + '</a></div>' +
-              warning +
+              '<div class="item-meta">' +
+                '<a href="' + escapeHtml(item.url) + '" target="_blank" rel="noopener noreferrer">' +
+                  '<span>Open in Drive</span>' + svgOpen() +
+                '</a>' +
+              '</div>' +
+              warn +
             '</div>' +
-            '<button class="remove" onclick="' + removeFnName + '(\'' + escapeHtml(item.id) + '\')">Remove</button>' +
+            '<button class="item-remove" title="Remove" type="button" onclick="' + removeFnName + '(\'' + escapeHtml(item.id) + '\')">' + svgClose() + '</button>' +
           '</li>'
         );
       }).join('');
     }
 
+    function setListsLoading(loading) {
+      document.getElementById('listsLoading').classList.toggle('show', loading);
+      document.getElementById('listsContent').classList.toggle('hidden', loading);
+    }
+
     function refreshScopeState() {
+      setListsLoading(true);
       google.script.run
         .withSuccessHandler(function(state) {
-          document.getElementById('folderCount').textContent = '(' + state.counts.folders + ')';
-          document.getElementById('docCount').textContent = '(' + state.counts.documents + ')';
-          renderList('folderList', state.folders, 'removeFolder');
-          renderList('docList', state.documents, 'removeDoc');
+          setListsLoading(false);
+          var folderTotal = state.counts.folders || 0;
+          var docTotal = state.counts.documents || 0;
+          document.getElementById('folderCount').textContent = folderTotal
+            ? folderTotal + (folderTotal === 1 ? ' folder' : ' folders')
+            : '';
+          document.getElementById('docCount').textContent = docTotal
+            ? docTotal + (docTotal === 1 ? ' doc' : ' docs')
+            : '';
+          renderList('folderList', state.folders, 'removeFolder', 'folder');
+          renderList('docList', state.documents, 'removeDoc', 'doc');
         })
         .withFailureHandler(function(error) {
-          setStatus('Failed to load scope: ' + error, true);
+          setListsLoading(false);
+          setStatus('Failed to load scope: ' + error, 'error');
         })
         .getIndexScopeState();
     }
 
-    function addFolder() {
-      var value = document.getElementById('folderInput').value;
-      google.script.run
-        .withSuccessHandler(function() {
-          document.getElementById('folderInput').value = '';
-          setStatus('Folder included. Click Sync Index Now to update Global search.', false);
-          refreshScopeState();
-        })
-        .withFailureHandler(function(error) {
-          setStatus('Failed to add folder: ' + error, true);
-        })
-        .addIndexContentFolder(value);
+    function submitAdd() {
+      var value = document.getElementById('addInput').value.trim();
+      if (!value) return;
+      var btn = document.getElementById('addBtn');
+      btn.disabled = true;
+      var onOk = function(label) {
+        document.getElementById('addInput').value = '';
+        btn.disabled = false;
+        setStatus(label + ' added. Click "Sync index" to update Global search.', 'ok');
+        refreshScopeState();
+      };
+      var onErr = function(what, error) {
+        btn.disabled = false;
+        setStatus('Failed to add ' + what + ': ' + error, 'error');
+      };
+      if (currentMode === 'folder') {
+        google.script.run
+          .withSuccessHandler(function() { onOk('Folder'); })
+          .withFailureHandler(function(error) { onErr('folder', error); })
+          .addIndexContentFolder(value);
+      } else {
+        google.script.run
+          .withSuccessHandler(function() { onOk('Document'); })
+          .withFailureHandler(function(error) { onErr('document', error); })
+          .addIndexExplicitDocument(value);
+      }
     }
 
-    function addDoc() {
-      var value = document.getElementById('docInput').value;
-      google.script.run
-        .withSuccessHandler(function() {
-          document.getElementById('docInput').value = '';
-          setStatus('Document included. Click Sync Index Now to update Global search.', false);
-          refreshScopeState();
-        })
-        .withFailureHandler(function(error) {
-          setStatus('Failed to add document: ' + error, true);
-        })
-        .addIndexExplicitDocument(value);
-    }
-
-    function addCurrentDoc() {
-      google.script.run
-        .withSuccessHandler(function(result) {
-          var docName = result && result.docName ? result.docName : 'current document';
-          setStatus('Added ' + docName + ' to index scope.', false);
-          refreshScopeState();
-        })
-        .withFailureHandler(function(error) {
-          setStatus('Failed to add current document: ' + error, true);
-        })
-        .addCurrentDocumentToIndexScopeForUi();
-    }
-
-    function addCurrentParentFolder() {
-      google.script.run
-        .withSuccessHandler(function(result) {
-          var folderName = result && result.folderName ? result.folderName : 'parent folder';
-          setStatus('Added ' + folderName + ' to index scope.', false);
-          refreshScopeState();
-        })
-        .withFailureHandler(function(error) {
-          setStatus('Failed to add current document parent folder: ' + error, true);
-        })
-        .addCurrentDocumentParentFolderToIndexScopeForUi();
+    function useCurrent() {
+      if (currentMode === 'folder') {
+        google.script.run
+          .withSuccessHandler(function(result) {
+            setStatus('Added ' + (result && result.folderName ? result.folderName : 'parent folder') + ' to index.', 'ok');
+            refreshScopeState();
+          })
+          .withFailureHandler(function(error) { setStatus('Failed: ' + error, 'error'); })
+          .addCurrentDocumentParentFolderToIndexScopeForUi();
+      } else {
+        google.script.run
+          .withSuccessHandler(function(result) {
+            setStatus('Added ' + (result && result.docName ? result.docName : 'current document') + ' to index.', 'ok');
+            refreshScopeState();
+          })
+          .withFailureHandler(function(error) { setStatus('Failed: ' + error, 'error'); })
+          .addCurrentDocumentToIndexScopeForUi();
+      }
     }
 
     function removeFolder(folderId) {
       google.script.run
-        .withSuccessHandler(function() {
-          setStatus('Folder removed from index scope.', false);
-          refreshScopeState();
-        })
-        .withFailureHandler(function(error) {
-          setStatus('Failed to remove folder: ' + error, true);
-        })
+        .withSuccessHandler(function() { setStatus('Folder removed.', 'ok'); refreshScopeState(); })
+        .withFailureHandler(function(error) { setStatus('Failed to remove folder: ' + error, 'error'); })
         .removeIndexContentFolderId(folderId);
     }
 
     function removeDoc(docId) {
       google.script.run
-        .withSuccessHandler(function() {
-          setStatus('Document removed from index scope.', false);
-          refreshScopeState();
-        })
-        .withFailureHandler(function(error) {
-          setStatus('Failed to remove document: ' + error, true);
-        })
+        .withSuccessHandler(function() { setStatus('Document removed.', 'ok'); refreshScopeState(); })
+        .withFailureHandler(function(error) { setStatus('Failed to remove document: ' + error, 'error'); })
         .removeIndexExplicitDocId(docId);
     }
 
     function runBackfill() {
-      setStatus('Syncing index...', false);
+      var btn = document.getElementById('syncBtn');
+      var icon = document.getElementById('syncIcon');
+      btn.disabled = true;
+      icon.classList.add('spin');
+      setStatus('Syncing…');
       google.script.run
         .withSuccessHandler(function(result) {
-          setStatus('Index sync complete. Updated: ' + result.updated + ', skipped: ' + result.skippedUnchanged + ', failed: ' + result.failed, false);
+          btn.disabled = false;
+          icon.classList.remove('spin');
+          setStatus('Sync complete — updated ' + result.updated + ', unchanged ' + result.skippedUnchanged + (result.failed ? ', failed ' + result.failed : '') + '.', 'ok');
         })
         .withFailureHandler(function(error) {
-          setStatus('Index sync failed: ' + error, true);
+          btn.disabled = false;
+          icon.classList.remove('spin');
+          setStatus('Sync failed: ' + error, 'error');
         })
         .backfillContentFolderToIndex();
     }
 
-    window.onload = function() {
-      refreshScopeState();
-    };
+    document.getElementById('addInput').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') submitAdd();
+    });
+
+    window.onload = function() { refreshScopeState(); };
   </script>
 </body>
 </html>

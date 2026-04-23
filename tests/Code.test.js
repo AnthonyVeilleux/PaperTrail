@@ -1,7 +1,6 @@
 const {
   onInstall,
   onOpen,
-  hideSidebar,
   showSidebar,
   include,
   refreshAllTags,
@@ -19,10 +18,8 @@ const {
 
 function makeUi() {
   return {
-    clear: jest.fn(),
     showSidebar: jest.fn(),
     showModalDialog: jest.fn(),
-    showModelessDialog: jest.fn(),
     alert: jest.fn(),
     prompt: jest.fn(),
     createMenu: jest.fn().mockReturnThis(),
@@ -126,21 +123,6 @@ describe('onOpen', () => {
     expect(mockUi.createMenu).toHaveBeenCalledWith('PaperTrail');
     expect(mockUi.addToUi).toHaveBeenCalled();
   });
-
-  test('shows a modeless dialog with keyboard shortcut tips', () => {
-    onOpen({});
-    expect(mockUi.showModelessDialog).toHaveBeenCalled();
-  });
-});
-
-// ─── hideSidebar ──────────────────────────────────────────────────────────────
-
-describe('hideSidebar', () => {
-  test('calls DocumentApp.getUi().clear()', () => {
-    hideSidebar();
-    expect(global.DocumentApp.getUi).toHaveBeenCalled();
-    expect(mockUi.clear).toHaveBeenCalled();
-  });
 });
 
 // ─── showSidebar ──────────────────────────────────────────────────────────────
@@ -150,7 +132,7 @@ describe('showSidebar', () => {
     showSidebar();
     expect(global.HtmlService.createTemplateFromFile).toHaveBeenCalledWith('Index');
     expect(mockTemplate.evaluate).toHaveBeenCalled();
-    expect(mockHtmlOutput.setTitle).toHaveBeenCalledWith('Tag Manager');
+    expect(mockHtmlOutput.setTitle).toHaveBeenCalledWith('PaperTrail');
     expect(mockHtmlOutput.setWidth).toHaveBeenCalledWith(360);
     expect(mockHtmlOutput.addMetaTag).toHaveBeenCalledWith('viewport', 'width=device-width, initial-scale=1');
     expect(mockHtmlOutput.setXFrameOptionsMode).toHaveBeenCalledWith('ALLOWALL');
@@ -175,7 +157,7 @@ describe('showIndexScopeManagerDialog', () => {
     showIndexScopeManagerDialog();
     expect(global.HtmlService.createHtmlOutputFromFile).toHaveBeenCalledWith('ScopeManager');
     expect(mockHtmlOutput.setWidth).toHaveBeenCalledWith(640);
-    expect(mockHtmlOutput.setHeight).toHaveBeenCalledWith(560);
+    expect(mockHtmlOutput.setHeight).toHaveBeenCalledWith(680);
     expect(mockUi.showModalDialog).toHaveBeenCalledWith(mockHtmlOutput, 'Manage Index Scope');
   });
 });
