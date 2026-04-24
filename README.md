@@ -6,6 +6,20 @@ PaperTrail is a Google Workspace / Drive add-on that extends Drive/Docs function
 
 **Important:** The GitHub repository is the **source of truth** for all code changes. While individual developers work in their personal Apps Script projects for testing, all official code must be committed to this GitHub repository. Never make changes directly in the Apps Script web editor that you intend to keep—always work locally and push changes through Git.
 
+## Project Team:
+
+- Zihan Wu (Client) - Contact: zihan.wu@maine.edu
+
+- Ben Yandell (Client Liason / Developer) - Contact: benjamin.yandell@maine.edu
+
+- Robert Kulow (Developer) - Contact: robert.kulow@maine.edu
+
+- Anthony Veilleux (Developer) - Contact: anthony.veilleux@maine.edu
+
+- Arius Ahmad (Developer) - Contact: arius.ahmad@maine.edu
+
+- Vasu Patel (Developer) - Contact: vasu.patel@maine.edu
+
 ## What is clasp?
 
 **clasp** (Command Line Apps Script Projects) is Google's official command-line tool for managing Google Apps Script projects. It allows developers to:
