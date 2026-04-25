@@ -2,6 +2,7 @@
 <script>
   let currentFilter = 'projects';
   let currentSort = 'alpha';
+  let currentSortDir = 'asc';
   let allTags = null;
   let currentTag = null;
   let expandedProjects = [];
@@ -899,6 +900,20 @@
     refreshCurrentView_();
   }
 
+  function getDateFilterRange_() {
+    const startInput = document.getElementById('dateFilterStart');
+    const endInput = document.getElementById('dateFilterEnd');
+    const start = startInput ? (startInput.dataset.iso || '') : '';
+    const end = endInput ? (endInput.dataset.iso || '') : '';
+    if (!start && !end) return null;
+    return {
+      start: start || '1970-01-01',
+      end: end || '2099-12-31',
+      hasStart: !!start,
+      hasEnd: !!end
+    };
+  }
+
   function renderProjectsView(projects) {
     const content = document.getElementById('content');
 
@@ -915,9 +930,8 @@
       });
     }
 
-    const combinedTags = Object.values(combinedTagsMap);
-
-    if (!combinedTags.length) {
+    const allCombinedTags = Object.values(combinedTagsMap);
+    if (!allCombinedTags.length) {
       content.innerHTML = `
         <div class="empty-state">
           <div style="font-size:48px;margin-bottom:12px;">🏷️</div>
@@ -926,6 +940,38 @@
           <button onclick="loadTags()" style="margin-top:16px;padding:8px 16px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer;">Refresh Tags</button>
         </div>
       `;
+      return;
+    }
+
+    let combinedTags = allCombinedTags;
+    const dateRange = getDateFilterRange_();
+    if (dateRange) {
+      combinedTags = combinedTags.filter(function(tag) {
+        if (!tag.date) return false;
+        return tag.date >= dateRange.start && tag.date <= dateRange.end;
+      });
+    }
+
+    if (!combinedTags.length) {
+      let emptyHtml;
+      if (dateRange) {
+        const startLabel = dateRange.hasStart ? formatShortDate_(dateRange.start) : 'the beginning';
+        const endLabel = dateRange.hasEnd ? formatShortDate_(dateRange.end) : 'the end';
+        emptyHtml = `
+          <div class="empty-state">
+            <div class="empty-title">No Tags in Date Range</div>
+            <p style="font-size:12px;color:#80868b;margin-top:8px;">No tags between <strong>${startLabel}</strong> and <strong>${endLabel}</strong></p>
+            <button onclick="clearDateFilter()" style="margin-top:16px;padding:8px 16px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer;">Clear Filter</button>
+          </div>`;
+      } else {
+        emptyHtml = `
+          <div class="empty-state">
+            <div style="font-size:48px;margin-bottom:12px;">🏷️</div>
+            <div class="empty-title">No Tags Found</div>
+            <p style="font-size:12px;color:#80868b;margin-top:8px;">Start typing #tagname in your document</p>
+          </div>`;
+      }
+      content.innerHTML = emptyHtml;
       return;
     }
 
@@ -1017,6 +1063,7 @@
           ${shouldShowExpandButton ? `<span class="tag-expand-icon ${isExpanded ? 'expanded' : ''}" onclick="toggleNestedTag('${fullPath}', event)" title="Toggle children">▶</span>` : `<span style="width:18px;"></span>`}
           <div class="tag-dot" style="background-color:${tagColor}; flex-shrink: 0;" onclick="openColorPicker(event, '${fullPath}', '${tagColor}')"></div>
           <span class="tag-name" title="#${fullPath}">${hasChildren && !isGroupNode && occurrenceCount === 1 ? `<span class="tag-name-link" onclick="event.stopPropagation(); jumpToTag('${fullPath}', 0)">#${isLocalSearchActive_() ? fullPath : key}</span>` : `#${isLocalSearchActive_() ? fullPath : key}`}</span>
+          ${tag && tag.date ? `<span class="tag-date" title="${tag.date}">${formatShortDate_(tag.date)}</span>` : ''}
           ${tagCount > 0 && !isGroupNode ? (hasMultipleOccurrences ? `<span class="tag-count-badge has-occurrences ${showOccurrences ? 'expanded' : ''}" onclick="toggleTagOccurrences('${fullPath}', event, ${occurrenceCount})" title="Show all occurrences">${tagCount}<span class="tag-count-chevron">▾</span></span>` : `<span class="tag-count-badge">${tagCount}</span>`) : (tagCount > 0 && isGroupNode ? `<span class="tag-count-badge">${tagCount}</span>` : '')}
         </div>
       </div>
@@ -1029,7 +1076,10 @@
     // Render children if expanded
     if (isExpanded && hasChildren) {
       html += `<div class="nested-children" style="--parent-color: ${tagColor}">`;
-      Object.keys(node.children).sort().forEach(childKey => {
+      const childCmp = getTagComparator_(currentSort, currentSortDir);
+      Object.keys(node.children).sort((a, b) =>
+        childCmp({ key: a, node: node.children[a] }, { key: b, node: node.children[b] })
+      ).forEach(childKey => {
         html += renderTagNode(node.children[childKey], childKey, depth + 1, projectId);
       });
       html += '</div>';
@@ -1048,14 +1098,10 @@
     
     let html = '<div class="tags-list">';
 
-    const rootKeys = Object.keys(tagTree).sort((a, b) => {
-      if (currentSort === 'count') {
-        const countA = tagTree[a].tag ? tagTree[a].tag.count : 0;
-        const countB = tagTree[b].tag ? tagTree[b].tag.count : 0;
-        if (countB !== countA) return countB - countA;
-      }
-      return a.localeCompare(b);
-    });
+    const cmp = getTagComparator_(currentSort, currentSortDir);
+    const rootKeys = Object.keys(tagTree).sort((a, b) =>
+      cmp({ key: a, node: tagTree[a] }, { key: b, node: tagTree[b] })
+    );
 
     rootKeys.forEach((key, index) => {
       if (index > 0) html += '<div class="tag-group-separator"></div>';
@@ -1066,17 +1112,369 @@
     return html;
   }
   
-  function toggleSort() {
-    currentSort = currentSort === 'alpha' ? 'count' : 'alpha';
-    const btn = document.getElementById('sortToggleBtn');
-    if (currentSort === 'alpha') {
-      btn.textContent = 'A–Z ↕';
-      btn.title = 'Sort by count';
-    } else {
-      btn.textContent = '# ↕';
-      btn.title = 'Sort A–Z';
+  const SORT_LABELS = { alpha: 'A–Z', count: 'Count', date: 'Date' };
+  const SORT_DEFAULT_DIR = { alpha: 'asc', count: 'desc', date: 'desc' };
+
+  function setSort(value) {
+    currentSort = value;
+    refreshCurrentView_();
+  }
+
+  function setSortFromMenu(value) {
+    if (value !== currentSort) {
+      currentSort = value;
+      currentSortDir = SORT_DEFAULT_DIR[value] || 'asc';
     }
     refreshCurrentView_();
+    updateSortUI_();
+  }
+
+  function toggleSortDir() {
+    currentSortDir = currentSortDir === 'asc' ? 'desc' : 'asc';
+    refreshCurrentView_();
+    updateSortUI_();
+  }
+
+  function updateSortUI_() {
+    const ascPath = 'M5 10V2M2 5l3-3 3 3';
+    const descPath = 'M5 2v8M2 7l3 3 3-3';
+    const icon = document.getElementById('sortDirIcon');
+    if (icon) {
+      icon.querySelector('path').setAttribute('d', currentSortDir === 'asc' ? ascPath : descPath);
+    }
+    document.querySelectorAll('.sort-pill').forEach(el => {
+      el.classList.toggle('active', el.dataset.value === currentSort);
+    });
+    updateDateFilterPanelVisibility();
+  }
+
+  function updateDateFilterPanelVisibility() {
+    const datePanel = document.getElementById('dateFilterPanel');
+    if (datePanel) {
+      if (currentSort === 'date') datePanel.classList.add('show');
+      else { datePanel.classList.remove('show'); clearDateFilter(); }
+    }
+  }
+
+  function setDatePreset(days) {
+    document.querySelectorAll('.date-preset').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.days === String(days));
+    });
+    const startInput = document.getElementById('dateFilterStart');
+    const endInput = document.getElementById('dateFilterEnd');
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - days);
+    const fmt = d => d.toISOString().slice(0, 10);
+    if (startInput) startInput.dataset.iso = fmt(start);
+    if (endInput) endInput.dataset.iso = fmt(end);
+    syncRangeChip_();
+    closeDatePicker();
+    refreshCurrentView_();
+  }
+
+  function syncRangeChip_() {
+    const startInput = document.getElementById('dateFilterStart');
+    const endInput = document.getElementById('dateFilterEnd');
+    const customBtn = document.getElementById('dateCustomBtn');
+    const s = startInput && startInput.dataset.iso ? startInput.dataset.iso : '';
+    const e = endInput && endInput.dataset.iso ? endInput.dataset.iso : '';
+    if (startInput && document.activeElement !== startInput) startInput.value = s ? formatShortDate_(s) : '';
+    if (endInput && document.activeElement !== endInput) endInput.value = e ? formatShortDate_(e) : '';
+    const active = !!(s || e);
+    const anyPresetActive = !!document.querySelector('.date-preset.active:not(.date-preset-custom)');
+    if (customBtn) customBtn.classList.toggle('active', active && !anyPresetActive);
+  }
+
+  function applyDateFilter() {
+    refreshCurrentView_();
+  }
+
+  function clearDateFilter() {
+    const startInput = document.getElementById('dateFilterStart');
+    const endInput = document.getElementById('dateFilterEnd');
+    if (startInput) { startInput.value = ''; startInput.dataset.iso = ''; }
+    if (endInput) { endInput.value = ''; endInput.dataset.iso = ''; }
+    document.querySelectorAll('.date-preset').forEach(btn => btn.classList.remove('active'));
+    syncRangeChip_();
+    refreshCurrentView_();
+  }
+
+  // ── Custom range date picker ──
+  let datePickerState = { open: false, viewDate: new Date(), pendingStart: null };
+
+  function openRangePicker() {
+    const startInput = document.getElementById('dateFilterStart');
+    const popup = document.getElementById('datePickerPopup');
+    if (!popup) return;
+    const startIso = startInput && startInput.dataset.iso ? startInput.dataset.iso : '';
+    datePickerState.viewDate = startIso ? new Date(startIso + 'T00:00:00') : new Date();
+    datePickerState.pendingStart = null;
+    datePickerState.open = true;
+    renderDatePicker();
+    popup.classList.add('show');
+  }
+
+  function closeDatePicker() {
+    datePickerState.open = false;
+    datePickerState.pendingStart = null;
+    const popup = document.getElementById('datePickerPopup');
+    if (popup) popup.classList.remove('show');
+    const startInput = document.getElementById('dateFilterStart');
+    const endInput = document.getElementById('dateFilterEnd');
+    if (startInput) startInput.classList.remove('target');
+    if (endInput) endInput.classList.remove('target');
+  }
+
+  function renderDatePicker() {
+    const popup = document.getElementById('datePickerPopup');
+    const body = document.getElementById('datePickerBody');
+    if (!popup || !body) return;
+    const year = datePickerState.viewDate.getFullYear();
+    const month = datePickerState.viewDate.getMonth();
+    const startInput = document.getElementById('dateFilterStart');
+    const endInput = document.getElementById('dateFilterEnd');
+    const startIso = startInput && startInput.dataset.iso ? startInput.dataset.iso : '';
+    const endIso = endInput && endInput.dataset.iso ? endInput.dataset.iso : '';
+    const pending = datePickerState.pendingStart;
+    const rangeStart = pending || startIso;
+    const rangeEnd = pending ? '' : endIso;
+    const shortMonthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const dayLabels = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+
+    const selectingEnd = !!pending;
+    if (startInput) startInput.classList.toggle('target', !selectingEnd);
+    if (endInput) endInput.classList.toggle('target', selectingEnd);
+
+    let html = '<div class="date-picker-header">';
+    html += '<button class="date-picker-nav" onclick="changePickerMonth(-1); event.stopPropagation();">&#8249;</button>';
+    html += '<div class="date-picker-selects">';
+    html += '<select onchange="setPickerMonth(this.value); event.stopPropagation();">';
+    for (let m = 0; m < 12; m++) {
+      html += '<option value="' + m + '"' + (m === month ? ' selected' : '') + '>' + shortMonthNames[m] + '</option>';
+    }
+    html += '</select>';
+    html += '<select onchange="setPickerYear(this.value); event.stopPropagation();">';
+    const currentYear = new Date().getFullYear();
+    for (let y = currentYear - 10; y <= currentYear + 10; y++) {
+      html += '<option value="' + y + '"' + (y === year ? ' selected' : '') + '>' + y + '</option>';
+    }
+    html += '</select>';
+    html += '</div>';
+    html += '<button class="date-picker-nav" onclick="changePickerMonth(1); event.stopPropagation();">&#8250;</button>';
+    html += '</div>';
+
+    html += '<div class="date-picker-days">';
+    dayLabels.forEach(function(d) { html += '<div class="date-picker-day-label">' + d + '</div>'; });
+
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const prevMonthDays = new Date(year, month, 0).getDate();
+
+    for (let i = firstDay - 1; i >= 0; i--) {
+      html += '<div class="date-picker-day other-month">' + (prevMonthDays - i) + '</div>';
+    }
+
+    const today = new Date();
+    const todayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const iso = year + '-' + String(month + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+      const isToday = iso === todayStr;
+      let classes = 'date-picker-day';
+      if (rangeStart && rangeEnd) {
+        if (iso === rangeStart && iso === rangeEnd) classes += ' range-single';
+        else if (iso === rangeStart) classes += ' range-start';
+        else if (iso === rangeEnd) classes += ' range-end';
+        else if (iso > rangeStart && iso < rangeEnd) classes += ' in-range';
+      } else if (rangeStart && iso === rangeStart) {
+        classes += ' range-single';
+      }
+      if (isToday && !classes.includes('range-') && !classes.includes('in-range')) classes += ' today';
+      html += '<div class="' + classes + '" onclick="selectPickerDate(\'' + iso + '\'); event.stopPropagation();">' + d + '</div>';
+    }
+
+    const totalCells = firstDay + daysInMonth;
+    const remaining = (7 - (totalCells % 7)) % 7;
+    for (let d = 1; d <= remaining; d++) {
+      html += '<div class="date-picker-day other-month">' + d + '</div>';
+    }
+
+    html += '</div>';
+
+    html += '<div class="date-picker-footer">';
+    html += '<button onclick="clearPickerDate(); event.stopPropagation();">Clear</button>';
+    html += '<button onclick="selectPickerDate(\'' + todayStr + '\'); event.stopPropagation();">Today</button>';
+    html += '</div>';
+
+    body.innerHTML = html;
+  }
+
+  function changePickerMonth(delta) {
+    const d = new Date(datePickerState.viewDate);
+    d.setMonth(d.getMonth() + delta);
+    datePickerState.viewDate = d;
+    renderDatePicker();
+  }
+
+  function setPickerMonth(m) {
+    const d = new Date(datePickerState.viewDate);
+    d.setMonth(parseInt(m, 10));
+    datePickerState.viewDate = d;
+    renderDatePicker();
+  }
+
+  function setPickerYear(y) {
+    const d = new Date(datePickerState.viewDate);
+    d.setFullYear(parseInt(y, 10));
+    datePickerState.viewDate = d;
+    renderDatePicker();
+  }
+
+  function selectPickerDate(iso) {
+    const startInput = document.getElementById('dateFilterStart');
+    const endInput = document.getElementById('dateFilterEnd');
+    if (!datePickerState.pendingStart) {
+      // First click — set start, await second click for end
+      datePickerState.pendingStart = iso;
+      if (startInput) startInput.dataset.iso = iso;
+      if (endInput) endInput.dataset.iso = '';
+      document.querySelectorAll('.date-preset').forEach(btn => btn.classList.remove('active'));
+      syncRangeChip_();
+      renderDatePicker();
+      return;
+    }
+    // Second click — finalize range (swap if end is before start)
+    let s = datePickerState.pendingStart;
+    let e = iso;
+    if (e < s) { const tmp = s; s = e; e = tmp; }
+    if (startInput) startInput.dataset.iso = s;
+    if (endInput) endInput.dataset.iso = e;
+    datePickerState.pendingStart = null;
+    syncRangeChip_();
+    closeDatePicker();
+    applyDateFilter();
+  }
+
+  function clearPickerDate() {
+    const startInput = document.getElementById('dateFilterStart');
+    const endInput = document.getElementById('dateFilterEnd');
+    if (startInput) startInput.dataset.iso = '';
+    if (endInput) endInput.dataset.iso = '';
+    datePickerState.pendingStart = null;
+    syncRangeChip_();
+    closeDatePicker();
+    applyDateFilter();
+  }
+
+  function parseTypedDate(target) {
+    const input = document.getElementById(target === 'start' ? 'dateFilterStart' : 'dateFilterEnd');
+    if (!input) return;
+    const raw = input.value.trim();
+    if (!raw) {
+      input.dataset.iso = '';
+      syncRangeChip_();
+      applyDateFilter();
+      return;
+    }
+    const parsed = parseDateString_(raw);
+    if (parsed) {
+      input.dataset.iso = parsed;
+      document.querySelectorAll('.date-preset:not(.date-preset-custom)').forEach(btn => btn.classList.remove('active'));
+      syncRangeChip_();
+      applyDateFilter();
+    } else {
+      // Invalid input — restore previous valid value
+      input.value = input.dataset.iso ? formatShortDate_(input.dataset.iso) : '';
+    }
+  }
+
+  function parseDateString_(s) {
+    if (!s) return null;
+    // mm/dd/yyyy
+    let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (m) {
+      const iso = m[3] + '-' + String(m[1]).padStart(2, '0') + '-' + String(m[2]).padStart(2, '0');
+      if (isValidDate_(iso)) return iso;
+    }
+    // m/d/yy
+    m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+    if (m) {
+      const y = parseInt(m[3], 10);
+      const fullY = y < 50 ? 2000 + y : 1900 + y;
+      const iso = fullY + '-' + String(m[1]).padStart(2, '0') + '-' + String(m[2]).padStart(2, '0');
+      if (isValidDate_(iso)) return iso;
+    }
+    // m-d-yyyy
+    m = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+    if (m) {
+      const iso = m[3] + '-' + String(m[1]).padStart(2, '0') + '-' + String(m[2]).padStart(2, '0');
+      if (isValidDate_(iso)) return iso;
+    }
+    // m-d-yy
+    m = s.match(/^(\d{1,2})-(\d{1,2})-(\d{2})$/);
+    if (m) {
+      const y = parseInt(m[3], 10);
+      const fullY = y < 50 ? 2000 + y : 1900 + y;
+      const iso = fullY + '-' + String(m[1]).padStart(2, '0') + '-' + String(m[2]).padStart(2, '0');
+      if (isValidDate_(iso)) return iso;
+    }
+    return null;
+  }
+
+  function isValidDate_(iso) {
+    if (!iso) return false;
+    const parts = iso.split('-');
+    if (parts.length !== 3) return false;
+    const d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+    return d.getFullYear() === parseInt(parts[0], 10) && d.getMonth() === parseInt(parts[1], 10) - 1 && d.getDate() === parseInt(parts[2], 10);
+  }
+
+  document.addEventListener('click', function(e) {
+    const popup = document.getElementById('datePickerPopup');
+    if (!popup || !popup.classList.contains('show')) return;
+    if (popup.contains(e.target)) return;
+    const customBtn = document.getElementById('dateCustomBtn');
+    if (customBtn && customBtn.contains(e.target)) return;
+    closeDatePicker();
+  });
+
+  // Returns a comparator (a, b) → number for the given sort mode and direction.
+  // Each argument is { key, node } where node has .tag (may be null for group nodes).
+  // Undated tags always float to the bottom regardless of direction in 'date' mode.
+  function getTagComparator_(mode, dir) {
+    const flip = dir === 'desc' ? -1 : 1;
+    return function(a, b) {
+      if (mode === 'count') {
+        const ca = a.node && a.node.tag ? (a.node.tag.count || 0) : 0;
+        const cb = b.node && b.node.tag ? (b.node.tag.count || 0) : 0;
+        if (ca !== cb) return flip * (ca - cb);
+        return a.key.localeCompare(b.key);
+      }
+      if (mode === 'date') {
+        const da = a.node && a.node.tag ? (a.node.tag.date || null) : null;
+        const db = b.node && b.node.tag ? (b.node.tag.date || null) : null;
+        if (da && db) return flip * (da < db ? -1 : da > db ? 1 : a.key.localeCompare(b.key));
+        if (da) return -1;
+        if (db) return 1;
+        return a.key.localeCompare(b.key);
+      }
+      // alpha
+      return flip * a.key.localeCompare(b.key);
+    };
+  }
+
+  // "2026-04-24" → "Apr 24" (omit year if current); "2025-04-24" → "Apr 24, 2025"
+  function formatShortDate_(iso) {
+    if (!iso) return '';
+    const parts = iso.split('-');
+    if (parts.length < 3) return iso;
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const m = months[parseInt(parts[1], 10) - 1] || '';
+    const d = parseInt(parts[2], 10);
+    const y = parseInt(parts[0], 10);
+    const thisYear = new Date().getFullYear();
+    return y === thisYear ? m + ' ' + d : m + ' ' + d + ', ' + y;
   }
 
   function toggleNestedTag(parentName, event) {
@@ -1117,6 +1515,12 @@
       if (filter === 'global') contentBar.classList.add('hidden');
       else contentBar.classList.remove('hidden');
     }
+    const datePanel = document.getElementById('dateFilterPanel');
+    if (datePanel) datePanel.classList.remove('show');
+    clearDateFilter();
+    const recentPanel = document.getElementById('recentFilterPanel');
+    if (recentPanel) recentPanel.classList.remove('show');
+    clearRecentPreset_();
     if (allTags) renderTags(allTags);
   }
 
