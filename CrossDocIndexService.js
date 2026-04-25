@@ -115,6 +115,16 @@ function upsertDocumentTagsToIndex_(docId, docTitle, docUrl, parsed) {
  * Build a new in-memory row array with the given doc's rows replaced by fresh tag data.
  * existingRows[0] is the header row and is always preserved.
  */
+// Updates lastSeenAt (column 6) to now for every row belonging to docId.
+function touchDocumentLastSeenAt_(rows, docId) {
+	var nowIso = new Date().toISOString();
+	for (var i = 1; i < rows.length; i++) {
+		if (String(rows[i][1]) === String(docId)) {
+			rows[i][6] = nowIso;
+		}
+	}
+}
+
 function replaceDocumentRowsInData_(existingRows, docId, docTitle, docUrl, parsed) {
 	var out = existingRows.length ? [existingRows[0]] : [INDEX_HEADERS.slice()];
 	for (var i = 1; i < existingRows.length; i++) {
@@ -654,6 +664,8 @@ function backfillContentFolderToIndex() {
 				var docUrl = doc.getUrl();
 				var parsed = extractHashtagsFromText_(doc.getBody().getText());
 				if (signatureByDocId[docId] && signatureByDocId[docId] === parsed.textSignature) {
+					touchDocumentLastSeenAt_(rows, docId);
+					mutated = true;
 					summary.skippedUnchanged++;
 					return;
 				}
