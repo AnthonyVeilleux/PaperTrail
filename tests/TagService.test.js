@@ -81,6 +81,42 @@ describe('extractHashtagsFromText_', () => {
     const result = extractHashtagsFromText_('#tag');
     expect(result).toHaveProperty('textSignature');
   });
+
+  test('assigns bare M/D/YYYY date on same paragraph to tags', () => {
+    const result = extractHashtagsFromText_('#Meeting scheduled for 04/02/2026');
+    expect(result.tags['Meeting']).toBe(1);
+    expect(result.tagDates['Meeting']).toBe('2026-04-02');
+  });
+
+  test('assigns bare M-D-YYYY date on same paragraph to tags', () => {
+    const result = extractHashtagsFromText_('Review #Task on 04-24-2026');
+    expect(result.tagDates['Task']).toBe('2026-04-24');
+  });
+
+  test('assigns bare M/D/YY date on same paragraph to tags', () => {
+    const result = extractHashtagsFromText_('#Standup 4/24/26 notes');
+    expect(result.tagDates['Standup']).toBe('2026-04-24');
+  });
+
+  test('assigns bare M-D-YY date on same paragraph to tags', () => {
+    const result = extractHashtagsFromText_('#Retro 4-24-26 notes');
+    expect(result.tagDates['Retro']).toBe('2026-04-24');
+  });
+
+  test('explicit #date tag takes precedence over bare date in same paragraph', () => {
+    const result = extractHashtagsFromText_('#Task on 04/02/2026 but #4/1/26');
+    expect(result.tagDates['Task']).toBe('2026-04-01');
+  });
+
+  test('suffix @date takes precedence over bare date in same paragraph', () => {
+    const result = extractHashtagsFromText_('#Task@3/15/2026 due 04/02/2026');
+    expect(result.tagDates['Task']).toBe('2026-03-15');
+  });
+
+  test('ignores invalid bare date strings', () => {
+    const result = extractHashtagsFromText_('#Task meeting chapter-1');
+    expect(result.tagDates['Task']).toBeUndefined();
+  });
 });
 
 // ─── escapeRegex ──────────────────────────────────────────────────────────────

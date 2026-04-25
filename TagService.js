@@ -2,9 +2,91 @@
  * TagService.js - Tag extraction and management logic
  */
 
+// Matches month/day/year date strings in multiple separators.
+// All formats are month-first: M/D[/YY[YY]], M-D[-YY[YYYY]], Mon-D[-YYYY], Month-D[-YYYY]
+var DATE_PAYLOAD_RE_ = /^(?:(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?|(\d{1,2})-(\d{1,2})(?:-(\d{2,4}))?|(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|January|February|March|April|June|July|August|September|October|November|December)-(\d{1,2})(?:-(\d{4}))?)$/i;
+
+var MONTH_MAP_ = {
+  jan:1,january:1,feb:2,february:2,mar:3,march:3,apr:4,april:4,
+  may:5,jun:6,june:6,jul:7,july:7,aug:8,august:8,
+  sep:9,september:9,oct:10,october:10,nov:11,november:11,dec:12,december:12
+};
+
+function isDateString_(s) {
+  return DATE_PAYLOAD_RE_.test(s);
+}
+
+// Returns "YYYY-MM-DD" or null. For bare M/D or M-D without a year, assumes current year;
+// bumps to next year if the result is more than 6 months in the past.
+function parseDateString_(s) {
+  var m = DATE_PAYLOAD_RE_.exec(s);
+  if (!m) return null;
+  var year, month, day;
+  if (m[1]) {
+    // M/D[/YY[YY]]
+    month = parseInt(m[1], 10); day = parseInt(m[2], 10);
+    if (m[3]) {
+      year = parseInt(m[3], 10);
+      if (year < 100) year += 2000;
+    } else {
+      year = new Date().getFullYear();
+      var candidate = new Date(year, month - 1, day);
+      if ((new Date() - candidate) > 180 * 24 * 60 * 60 * 1000) year++;
+    }
+  } else if (m[4]) {
+    // M-D[-YY[YYYY]]
+    month = parseInt(m[4], 10); day = parseInt(m[5], 10);
+    if (m[6]) {
+      year = parseInt(m[6], 10);
+      if (year < 100) year += 2000;
+    } else {
+      year = new Date().getFullYear();
+      var candidate3 = new Date(year, month - 1, day);
+      if ((new Date() - candidate3) > 180 * 24 * 60 * 60 * 1000) year++;
+    }
+  } else if (m[7]) {
+    // Mon-D[-YYYY]
+    month = MONTH_MAP_[m[7].toLowerCase()];
+    day = parseInt(m[8], 10);
+    year = m[9] ? parseInt(m[9], 10) : new Date().getFullYear();
+    if (!m[9]) {
+      var candidate2 = new Date(year, month - 1, day);
+      if ((new Date() - candidate2) > 180 * 24 * 60 * 60 * 1000) year++;
+    }
+  }
+  if (!year || !month || !day || month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return year + '-' + String(month).padStart(2,'0') + '-' + String(day).padStart(2,'0');
+}
+
+// Scans a paragraph for bare date strings (not prefixed with #) and returns
+// the ISO date of the last valid one found, or null if none.
+function extractBareDateFromParagraph_(para) {
+  // Remove explicit hashtag tokens so we don't re-process #date tags as bare dates
+  var stripped = para.replace(/#[a-zA-Z0-9_.-]+(?:@[A-Za-z0-9\/\-]+)?/g, ' ');
+
+  // Slash dates require an explicit year (M/D/YY or M/D/YYYY) to avoid matching fractions like 7/8.
+  // Hyphen and text-month formats keep the optional year as they're unambiguous in prose.
+  // Look for date-like strings: M/D/YY, M/D/YYYY, M-D-YY, M-D-YYYY, M-D, Month-D, Month-D-YYYY
+  var re = /\d{1,2}\/\d{1,2}\/\d{2,4}|\d{1,2}-\d{1,2}(?:-\d{2,4})?|[A-Za-z]+-\d{1,2}(?:-\d{4})?/g;
+  var match;
+  var lastIso = null;
+
+  while ((match = re.exec(stripped)) !== null) {
+    var iso = parseDateString_(match[0]);
+    if (iso) lastIso = iso;
+  }
+  return lastIso;
+}
+
 /**
- * Extract hashtag counts and hierarchy from plain text.
- * Supports formats: #SimpleTag, #Parent.Child, #Parent.Child.GrandChild
+ * Extract hashtag counts, hierarchy, and associated dates from plain text.
+ * Supports:
+ *   #SimpleTag, #Parent.Child  (existing)
+ *   #tag@date                  (per-tag suffix, e.g. #Meeting@4/24)
+ *   #4-24-26, #Apr-24          (paragraph-scope date-tag; applies to all other tags in same paragraph)
+ *   04/02/26, 4-24-26, Apr-24  (bare dates in the same paragraph; fallback when no #date tag)
+ * Precedence: suffix > paragraph #date tag > bare date in paragraph > none.
+ * For a tag appearing multiple times with different dates, last occurrence wins.
  */
 function extractHashtagsFromText_(text) {
   var safeText = String(text || '');
@@ -12,43 +94,71 @@ function extractHashtagsFromText_(text) {
     Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, safeText)
   );
 
-  // Matches: #tag, #Parent.Child, #Category.SubCategory.Item
-  var hashtagRegex = /#([a-zA-Z0-9_.-]+)/g;
-  var matches = [];
-  var match;
-
-  while ((match = hashtagRegex.exec(safeText)) !== null) {
-    matches.push(match[1]);
-  }
-
-  if (matches.length === 0) {
-    return { tags: {}, hierarchy: {}, textSignature: textSignature };
-  }
-
   var tagCounts = {};
   var hierarchyMap = {};
+  var tagDates = {};  // tagName → ISO date string
 
-  matches.forEach(function(tag) {
-    tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+  // Regex: #<payload>  optionally followed immediately by @<datestr>
+  // payload: letters, digits, _, ., /, -; datestr: word chars + / and -
+  var tokenRe = /#([a-zA-Z0-9_.\/-]+)(?:@([A-Za-z0-9\/\-]+))?/g;
 
-    if (tag.indexOf('.') !== -1) {
-      var parts = tag.split('.');
-      for (var i = 0; i < parts.length - 1; i++) {
-        var parent = parts.slice(0, i + 1).join('.');
-        var child = parts.slice(0, i + 2).join('.');
-        if (!hierarchyMap[parent]) {
-          hierarchyMap[parent] = [];
-        }
-        if (hierarchyMap[parent].indexOf(child) === -1) {
-          hierarchyMap[parent].push(child);
+  var paragraphs = safeText.split('\n');
+
+  paragraphs.forEach(function(para) {
+    var paraMatch;
+    var paraTagNames = [];   // regular tags found in this paragraph
+    var paraSuffixDates = {}; // tagName → ISO from @suffix
+    var paragraphDate = null; // ISO from a date-tag on this paragraph
+
+    tokenRe.lastIndex = 0;
+    while ((paraMatch = tokenRe.exec(para)) !== null) {
+      var payload = paraMatch[1];
+      var suffix  = paraMatch[2] || null;
+
+      if (isDateString_(payload)) {
+        // This token is a date-tag — record as paragraph-level date, skip counting
+        var iso = parseDateString_(payload);
+        if (iso) paragraphDate = iso;
+        continue;
+      }
+
+      // Regular tag
+      tagCounts[payload] = (tagCounts[payload] || 0) + 1;
+      paraTagNames.push(payload);
+
+      if (suffix) {
+        var suffixIso = parseDateString_(suffix);
+        if (suffixIso) paraSuffixDates[payload] = suffixIso;
+      }
+
+      // Hierarchy
+      if (payload.indexOf('.') !== -1) {
+        var parts = payload.split('.');
+        for (var i = 0; i < parts.length - 1; i++) {
+          var parent = parts.slice(0, i + 1).join('.');
+          var child  = parts.slice(0, i + 2).join('.');
+          if (!hierarchyMap[parent]) hierarchyMap[parent] = [];
+          if (hierarchyMap[parent].indexOf(child) === -1) hierarchyMap[parent].push(child);
         }
       }
     }
+
+    // If no explicit #date tag was found in this paragraph, look for bare dates
+    if (!paragraphDate) {
+      paragraphDate = extractBareDateFromParagraph_(para);
+    }
+
+    // Resolve dates for this paragraph's tags (suffix wins over paragraph date; last occurrence wins)
+    paraTagNames.forEach(function(name) {
+      var resolved = paraSuffixDates[name] || paragraphDate || null;
+      if (resolved) tagDates[name] = resolved;
+    });
   });
 
   return {
     tags: tagCounts,
     hierarchy: hierarchyMap,
+    tagDates: tagDates,
     textSignature: textSignature
   };
 }
@@ -92,8 +202,13 @@ function getAllTags() {
     var globalTags = allProps['globalTags'] ? JSON.parse(allProps['globalTags']) : getDefaultGlobalTags();
 
     var allTagMetadata = {};
-        projects.forEach(function(project) {
+    var newTags = [];
+    var pendingWrites = {};
+    var projectsChanged = false;
+
+    projects.forEach(function(project) {
       var updatedTags = [];
+      var originalCount = (project.tags || []).length;
       if (project.tags) {
         project.tags.forEach(function(tag) {
           if (documentTags.tags[tag.name]) {
@@ -103,6 +218,8 @@ function getAllTags() {
               try {
                 var meta = JSON.parse(allProps[metaKey]);
                 if (meta && meta.color) tag.color = meta.color;
+                if (meta && meta.createdAt) tag.createdAt = meta.createdAt;
+                if (meta && meta.lastAddedAt) tag.lastAddedAt = meta.lastAddedAt;
               } catch (e) {}
             }
             if (!tag.color) {
@@ -110,6 +227,7 @@ function getAllTags() {
               pendingWrites[metaKey] = JSON.stringify({
                 created: new Date().toISOString().split('T')[0],
                 createdTime: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+                createdAt: new Date().toISOString(),
                 author: Session.getActiveUser().getEmail() || 'Unknown',
                 lastUsed: 'Just now',
                 color: tag.color,
@@ -122,16 +240,15 @@ function getAllTags() {
                 depth: tag.name.split('.').length
               });
             }
+            tag.date = (documentTags.tagDates && documentTags.tagDates[tag.name]) || null;
             updatedTags.push(tag);
             allTagMetadata[tag.name] = true;
           }
         });
       }
       project.tags = updatedTags;
+      if (updatedTags.length !== originalCount) projectsChanged = true;
     });
-
-    var newTags = [];
-    var pendingWrites = {};
 
     for (var tagName in documentTags.tags) {
       if (!allTagMetadata[tagName]) {
@@ -143,30 +260,41 @@ function getAllTags() {
             metadata.isNested = true;
           }
         }
+        // Stamp lastAddedAt every time a tag enters (or re-enters) the doc.
+        // createdAt stays frozen at first-ever creation; lastAddedAt resets on re-add.
+        metadata.lastAddedAt = new Date().toISOString();
+        pendingWrites['tag_' + tagName] = JSON.stringify(metadata);
         newTags.push({
           name: tagName,
           count: documentTags.tags[tagName],
           color: metadata.color,
+          date: (documentTags.tagDates && documentTags.tagDates[tagName]) || null,
+          createdAt: metadata.createdAt || null,
+          lastAddedAt: metadata.lastAddedAt,
           metadata: metadata
         });
       }
     }
 
-    if (newTags.length > 0) {
+    if (newTags.length > 0 || projectsChanged) {
       if (projects.length === 0) {
         projects = [createDefaultProject()];
       }
-      projects[0].tags = (projects[0].tags || []).concat(newTags);
+      if (newTags.length > 0) {
+        projects[0].tags = (projects[0].tags || []).concat(newTags);
+      }
       pendingWrites['projects'] = JSON.stringify(projects);
     }
 
     globalTags.forEach(function(tag) {
       tag.count = documentTags.tags[tag.name] || 0;
+      tag.date = (documentTags.tagDates && documentTags.tagDates[tag.name]) || null;
       var metaKey = 'tag_' + tag.name;
       if (allProps[metaKey]) {
         try {
           var meta = JSON.parse(allProps[metaKey]);
           if (meta && meta.color) tag.color = meta.color;
+          if (meta && meta.createdAt) tag.createdAt = meta.createdAt;
         } catch (e) {}
       }
       if (!tag.color) {
@@ -174,6 +302,7 @@ function getAllTags() {
         pendingWrites[metaKey] = JSON.stringify({
           created: new Date().toISOString().split('T')[0],
           createdTime: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+          createdAt: new Date().toISOString(),
           author: Session.getActiveUser().getEmail() || 'Unknown',
           lastUsed: 'Just now',
           color: tag.color,
@@ -199,7 +328,7 @@ function getAllTags() {
       globalTags: globalTags,
       documentTags: documentTags,
       hierarchy: documentTags.hierarchy || {},
-      lastUpdated: computeTagStateSignature_(documentTags.tags, allProps, pendingWrites)
+      lastUpdated: computeTagStateSignature_(documentTags.tags, allProps, pendingWrites, documentTags.tagDates)
     };
 
   } catch (e) {
@@ -214,7 +343,7 @@ function getAllTags() {
 
 // Deterministic fingerprint of the doc's tag state so the sidebar poll can
 // detect count/color/rename changes — not just the discovery of new tags.
-function computeTagStateSignature_(tagCounts, allProps, pendingWrites) {
+function computeTagStateSignature_(tagCounts, allProps, pendingWrites, tagDates) {
   var names = Object.keys(tagCounts || {}).sort();
   var parts = [];
   for (var i = 0; i < names.length; i++) {
@@ -225,7 +354,8 @@ function computeTagStateSignature_(tagCounts, allProps, pendingWrites) {
     if (raw) {
       try { color = (JSON.parse(raw).color) || ''; } catch (e) {}
     }
-    parts.push(name + ':' + tagCounts[name] + ':' + color);
+    var date = (tagDates && tagDates[name]) || '';
+    parts.push(name + ':' + tagCounts[name] + ':' + color + ':' + date);
   }
   return parts.join('|');
 }
@@ -257,6 +387,7 @@ function getOrCreateTagMetadata(tagName) {
     var metadata = {
       created: new Date().toISOString().split('T')[0],
       createdTime: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+      createdAt: new Date().toISOString(),
       author: Session.getActiveUser().getEmail() || 'Unknown',
       lastUsed: 'Just now',
       color: getRandomColor(),
@@ -280,6 +411,7 @@ function getOrCreateTagMetadata(tagName) {
     return {
       created: new Date().toISOString().split('T')[0],
       createdTime: new Date().toLocaleTimeString(),
+      createdAt: new Date().toISOString(),
       author: 'Unknown',
       lastUsed: 'Just now',
       color: '#1A73E8',
@@ -313,6 +445,7 @@ function getOrCreateTagMetadataCached_(tagName, propCache, pendingWrites) {
   var metadata = {
     created: new Date().toISOString().split('T')[0],
     createdTime: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+    createdAt: new Date().toISOString(),
     author: Session.getActiveUser().getEmail() || 'Unknown',
     lastUsed: 'Just now',
     color: getRandomColor(),
