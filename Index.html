@@ -9,7 +9,6 @@
 </head>
 <body>
   <div class="header">
-    <div class="header-title">🏷️ PaperTrail</div>
     <div class="search-container">
       <input type="text" class="search-input" id="searchInput" placeholder="Search tags...">
       <div class="autocomplete-list" id="autocompleteList"></div>
@@ -21,6 +20,38 @@
     </div>
   </div>
 
+  <div class="content-bar" id="contentBar">
+    <div class="sort-pills" id="sortPills">
+      <button class="sort-pill active" data-value="alpha" onclick="setSortFromMenu('alpha')">A–Z</button>
+      <button class="sort-pill" data-value="count" onclick="setSortFromMenu('count')">Count</button>
+      <button class="sort-pill" data-value="date" onclick="setSortFromMenu('date')">Date</button>
+    </div>
+    <button class="sort-dir-btn" id="sortDirBtn" onclick="toggleSortDir()" title="Toggle ascending/descending">
+      <svg id="sortDirIcon" viewBox="0 0 10 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:10px;height:12px;"><path d="M5 10V2M2 5l3-3 3 3"/></svg>
+    </button>
+  </div>
+
+  <div class="date-filter-panel" id="dateFilterPanel">
+    <div class="date-presets" id="datePresets">
+      <button class="date-preset" data-days="1" onclick="setDatePreset(1)">1d</button>
+      <button class="date-preset" data-days="3" onclick="setDatePreset(3)">3d</button>
+      <button class="date-preset" data-days="7" onclick="setDatePreset(7)">7d</button>
+      <button class="date-preset" data-days="30" onclick="setDatePreset(30)">30d</button>
+      <button class="date-preset date-preset-custom" id="dateCustomBtn" onclick="openRangePicker(); event.stopPropagation();" title="Pick a custom range">
+        <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="width:11px;height:11px;display:block;"><rect x="2" y="3" width="10" height="9" rx="1.5"/><path d="M2 6h10M5 1.5v2M9 1.5v2"/></svg>
+        <span>Custom</span>
+      </button>
+    </div>
+    <div class="date-picker-popup" id="datePickerPopup">
+      <div class="date-picker-inputs">
+        <input type="text" id="dateFilterStart" class="date-picker-input" placeholder="From" onblur="parseTypedDate('start')" onkeydown="if(event.key==='Enter')this.blur()">
+        <span class="date-picker-input-sep">–</span>
+        <input type="text" id="dateFilterEnd" class="date-picker-input" placeholder="To" onblur="parseTypedDate('end')" onkeydown="if(event.key==='Enter')this.blur()">
+      </div>
+      <div id="datePickerBody"></div>
+    </div>
+  </div>
+
   <div class="content" id="content">
     <div class="loading">
       <div class="spinner"></div>
@@ -28,8 +59,11 @@
     </div>
   </div>
 
+  <!-- Color picker popup -->
+  <div class="color-popup" id="colorPopup"></div>
+
   <!-- Include JavaScript from Scripts.html -->
   <?!= include('Scripts') ?>
-  
+
 </body>
 </html>

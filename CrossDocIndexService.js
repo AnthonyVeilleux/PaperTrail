@@ -8,6 +8,10 @@ var CONTENT_FOLDERS_PROPERTY_KEY = 'PAPERTRAIL_CONTENT_FOLDER_IDS';
 var EXPLICIT_DOC_IDS_PROPERTY_KEY = 'PAPERTRAIL_EXPLICIT_DOC_IDS';
 var INDEX_SPREADSHEET_NAME = 'PaperTrail_Index';
 var INDEX_SHEET_NAME = 'TagIndex';
+var INDEX_CACHE_META_KEY = 'papertrail_idx_meta_v1';
+var INDEX_CACHE_CHUNK_PREFIX = 'papertrail_idx_chunk_v1_';
+var INDEX_CACHE_TTL_SECONDS = 21600;
+var INDEX_CACHE_CHUNK_BYTES = 90000;
 var INDEX_HEADERS = [
 	'tag',
 	'docId',
@@ -94,39 +98,11 @@ function upsertDocumentTagsToIndex_(docId, docTitle, docUrl, parsed) {
 	try {
 		var sheet = getOrCreateIndexSheet_();
 		var rows = sheet.getDataRange().getValues();
-		var rowIndex;
+		var updated = replaceDocumentRowsInData_(rows, docId, docTitle, docUrl, parsed);
+		writeIndexRows_(sheet, updated);
 
-		// Remove existing rows for the document so removals are reflected.
-		for (rowIndex = rows.length - 1; rowIndex >= 1; rowIndex--) {
-			if (String(rows[rowIndex][1]) === String(docId)) {
-				sheet.deleteRow(rowIndex + 1);
-			}
-		}
-
-		var tagCounts = (parsed && parsed.tags) ? parsed.tags : {};
-		var tagNames = Object.keys(tagCounts);
-		var nowIso = new Date().toISOString();
-		var signature = (parsed && parsed.textSignature) ? parsed.textSignature : '';
-
-		if (!tagNames.length) {
-			return { success: true, indexedRows: 0, docId: docId };
-		}
-
-		var toWrite = tagNames.map(function(tagName) {
-			return [
-				tagName,
-				docId,
-				docTitle,
-				docUrl,
-				tagCounts[tagName],
-				signature,
-				nowIso
-			];
-		});
-
-		sheet.getRange(sheet.getLastRow() + 1, 1, toWrite.length, INDEX_HEADERS.length).setValues(toWrite);
-
-		return { success: true, indexedRows: toWrite.length, docId: docId };
+		var tagNames = Object.keys((parsed && parsed.tags) ? parsed.tags : {});
+		return { success: true, indexedRows: tagNames.length, docId: docId };
 	} catch (e) {
 		Logger.log('Error upserting document tags to index: ' + e.toString());
 		return { success: false, error: e.toString(), docId: docId };
@@ -136,7 +112,143 @@ function upsertDocumentTagsToIndex_(docId, docTitle, docUrl, parsed) {
 }
 
 /**
- * Search indexed documents by tag name.
+ * Build a new in-memory row array with the given doc's rows replaced by fresh tag data.
+ * existingRows[0] is the header row and is always preserved.
+ */
+// Updates lastSeenAt (column 6) to now for every row belonging to docId.
+function touchDocumentLastSeenAt_(rows, docId) {
+	var nowIso = new Date().toISOString();
+	for (var i = 1; i < rows.length; i++) {
+		if (String(rows[i][1]) === String(docId)) {
+			rows[i][6] = nowIso;
+		}
+	}
+}
+
+function replaceDocumentRowsInData_(existingRows, docId, docTitle, docUrl, parsed) {
+	var out = existingRows.length ? [existingRows[0]] : [INDEX_HEADERS.slice()];
+	for (var i = 1; i < existingRows.length; i++) {
+		if (String(existingRows[i][1]) !== String(docId)) {
+			out.push(existingRows[i]);
+		}
+	}
+
+	var tagCounts = (parsed && parsed.tags) ? parsed.tags : {};
+	var tagNames = Object.keys(tagCounts);
+	if (!tagNames.length) {
+		return out;
+	}
+
+	var nowIso = new Date().toISOString();
+	var signature = (parsed && parsed.textSignature) ? parsed.textSignature : '';
+
+	tagNames.forEach(function(tagName) {
+		out.push([
+			tagName,
+			docId,
+			docTitle,
+			docUrl,
+			tagCounts[tagName],
+			signature,
+			nowIso
+		]);
+	});
+
+	return out;
+}
+
+/**
+ * Overwrite the sheet with the given rows (including header) in a single pass.
+ * Trims any surplus rows left over from a prior, larger dataset.
+ */
+function writeIndexRows_(sheet, rows) {
+	var existingLastRow = sheet.getLastRow();
+	if (existingLastRow > rows.length) {
+		sheet.deleteRows(rows.length + 1, existingLastRow - rows.length);
+	}
+	if (rows.length) {
+		sheet.getRange(1, 1, rows.length, INDEX_HEADERS.length).setValues(rows);
+	}
+	invalidateIndexCache_();
+}
+
+/**
+ * Read index rows, preferring the CacheService copy. Falls through to the sheet on miss.
+ */
+function getCachedIndexRows_() {
+	try {
+		var cache = CacheService.getScriptCache();
+		var meta = cache.get(INDEX_CACHE_META_KEY);
+		if (meta) {
+			var parsed = JSON.parse(meta);
+			var chunkKeys = [];
+			for (var i = 0; i < parsed.chunks; i++) {
+				chunkKeys.push(INDEX_CACHE_CHUNK_PREFIX + i);
+			}
+			var chunks = cache.getAll(chunkKeys);
+			var joined = '';
+			var complete = true;
+			for (var j = 0; j < parsed.chunks; j++) {
+				var piece = chunks[INDEX_CACHE_CHUNK_PREFIX + j];
+				if (piece === undefined || piece === null) {
+					complete = false;
+					break;
+				}
+				joined += piece;
+			}
+			if (complete) {
+				return JSON.parse(joined);
+			}
+		}
+	} catch (e) {
+		Logger.log('Index cache read failed: ' + e.toString());
+	}
+
+	var rows = getIndexRows_();
+	cacheIndexRows_(rows);
+	return rows;
+}
+
+/**
+ * Store the rows in CacheService, chunked to fit the per-key size limit.
+ */
+function cacheIndexRows_(rows) {
+	try {
+		var payload = JSON.stringify(rows);
+		var chunkCount = Math.max(1, Math.ceil(payload.length / INDEX_CACHE_CHUNK_BYTES));
+		var entries = {};
+		for (var i = 0; i < chunkCount; i++) {
+			entries[INDEX_CACHE_CHUNK_PREFIX + i] = payload.slice(i * INDEX_CACHE_CHUNK_BYTES, (i + 1) * INDEX_CACHE_CHUNK_BYTES);
+		}
+		entries[INDEX_CACHE_META_KEY] = JSON.stringify({ chunks: chunkCount });
+		CacheService.getScriptCache().putAll(entries, INDEX_CACHE_TTL_SECONDS);
+	} catch (e) {
+		Logger.log('Index cache write failed: ' + e.toString());
+	}
+}
+
+/**
+ * Drop every cached chunk + meta entry. Called after any sheet mutation.
+ */
+function invalidateIndexCache_() {
+	try {
+		var cache = CacheService.getScriptCache();
+		var meta = cache.get(INDEX_CACHE_META_KEY);
+		var keys = [INDEX_CACHE_META_KEY];
+		if (meta) {
+			var parsed = JSON.parse(meta);
+			for (var i = 0; i < parsed.chunks; i++) {
+				keys.push(INDEX_CACHE_CHUNK_PREFIX + i);
+			}
+		}
+		cache.removeAll(keys);
+	} catch (e) {
+		Logger.log('Index cache invalidation failed: ' + e.toString());
+	}
+}
+
+/**
+ * Search indexed documents by tag name. Substring match — querying "note" matches "notes".
  */
 function searchIndexedDocsByTag(tagName) {
 	var normalizedTag = String(tagName || '').replace(/^#/, '').trim().toLowerCase();
@@ -145,12 +257,13 @@ function searchIndexedDocsByTag(tagName) {
 	}
 
 	try {
-		var values = getIndexRows_();
+		var values = getCachedIndexRows_();
 		var matches = [];
 		var i;
 
 		for (i = 1; i < values.length; i++) {
-			if (String(values[i][0]).toLowerCase() === normalizedTag) {
+			var rowTag = String(values[i][0] || '').trim().toLowerCase();
+			if (rowTag && rowTag.indexOf(normalizedTag) !== -1) {
 				matches.push({
 					tag: values[i][0],
 					docId: values[i][1],
@@ -171,7 +284,7 @@ function searchIndexedDocsByTag(tagName) {
 }
 
 /**
- * Search indexed documents by multiple tags.
+ * Search indexed documents by multiple tags using substring matching.
  * Mode can be 'AND' (default) or 'OR'.
  */
 function searchIndexedDocsByTags(tags, mode) {
@@ -187,13 +300,23 @@ function searchIndexedDocsByTags(tags, mode) {
 	var queryMode = String(mode || 'AND').toUpperCase() === 'OR' ? 'OR' : 'AND';
 
 	try {
-		var values = getIndexRows_();
+		var values = getCachedIndexRows_();
 		var byDocId = {};
 		var i;
 
 		for (i = 1; i < values.length; i++) {
 			var rowTag = String(values[i][0] || '').trim().toLowerCase();
-			if (!rowTag || normalizedTags.indexOf(rowTag) === -1) {
+			if (!rowTag) {
+				continue;
+			}
+
+			var matchedQueryIndices = [];
+			for (var q = 0; q < normalizedTags.length; q++) {
+				if (rowTag.indexOf(normalizedTags[q]) !== -1) {
+					matchedQueryIndices.push(q);
+				}
+			}
+			if (!matchedQueryIndices.length) {
 				continue;
 			}
 
@@ -210,20 +333,26 @@ function searchIndexedDocsByTags(tags, mode) {
 					textSignature: values[i][5],
 					lastSeenAt: values[i][6],
 					tagCountInDoc: 0,
-					matchedTags: {}
+					matchedTags: {},
+					matchedQueryIndices: {}
 				};
 			}
 
-			byDocId[docId].tagCountInDoc += Number(values[i][4] || 0);
-			byDocId[docId].matchedTags[rowTag] = Number(values[i][4] || 0);
+			var count = Number(values[i][4] || 0);
+			byDocId[docId].tagCountInDoc += count;
+			byDocId[docId].matchedTags[rowTag] = (byDocId[docId].matchedTags[rowTag] || 0) + count;
+			matchedQueryIndices.forEach(function(qi) {
+				byDocId[docId].matchedQueryIndices[qi] = true;
+			});
 		}
 
 		var requiredCount = normalizedTags.length;
 		var output = Object.keys(byDocId)
 			.map(function(docId) {
 				var record = byDocId[docId];
-				record.matchCount = Object.keys(record.matchedTags).length;
+				record.matchCount = Object.keys(record.matchedQueryIndices).length;
 				record.tags = Object.keys(record.matchedTags);
+				delete record.matchedQueryIndices;
 				return record;
 			})
 			.filter(function(record) {
@@ -254,8 +383,7 @@ function getIndexedTagSuggestions(prefix, limit) {
 	}
 
 	try {
-		var sheet = getOrCreateIndexSheet_();
-		var values = sheet.getDataRange().getValues();
+		var values = getCachedIndexRows_();
 		var countsByTag = {};
 		var i;
 
@@ -288,27 +416,6 @@ function getIndexedTagSuggestions(prefix, limit) {
 		Logger.log('Error getting indexed tag suggestions: ' + e.toString());
 		return [];
 	}
-}
-
-/**
- * Set the content folder used by folder sync/backfill.
- */
-function setIndexContentFolderId(folderId) {
-	var normalized = String(folderId || '').trim();
-	if (!normalized) {
-		throw new Error('Folder ID is required.');
-	}
-	var scriptProps = PropertiesService.getScriptProperties();
-	scriptProps.setProperty(CONTENT_FOLDER_PROPERTY_KEY, normalized);
-	scriptProps.setProperty(CONTENT_FOLDERS_PROPERTY_KEY, JSON.stringify([normalized]));
-	return { success: true, folderId: normalized };
-}
-
-/**
- * Get configured content folder ID.
- */
-function getIndexContentFolderId() {
-	return PropertiesService.getScriptProperties().getProperty(CONTENT_FOLDER_PROPERTY_KEY);
 }
 
 /**
@@ -510,7 +617,7 @@ function addIndexExplicitDocument(docInput) {
 
 /**
  * Sync all Google Docs in the configured content folder to the index.
- * This version intentionally does not batch; it processes all docs in one run.
+ * Reads the index sheet once, mutates in memory, and writes once at the end.
  */
 function backfillContentFolderToIndex() {
 	var folderIds = getIndexContentFolderIds();
@@ -534,39 +641,51 @@ function backfillContentFolderToIndex() {
 		durationMs: 0
 	};
 
-	var sheet = getOrCreateIndexSheet_();
-	var signatureByDocId = getIndexedSignaturesByDocId_(sheet);
+	var lock = LockService.getScriptLock();
+	lock.waitLock(60000);
 
-	allDocIds.forEach(function(docId) {
-		summary.processed++;
-
-		try {
-			var doc = DocumentApp.openById(docId);
-			var docTitle = doc.getName();
-			var docUrl = doc.getUrl();
-			var parsed = extractHashtagsFromText_(doc.getBody().getText());
-			if (signatureByDocId[docId] && signatureByDocId[docId] === parsed.textSignature) {
-				summary.skippedUnchanged++;
-				return;
+	try {
+		var sheet = getOrCreateIndexSheet_();
+		var rows = sheet.getDataRange().getValues();
+		var signatureByDocId = {};
+		for (var i = 1; i < rows.length; i++) {
+			if (rows[i][1]) {
+				signatureByDocId[String(rows[i][1])] = rows[i][5] || '';
 			}
-
-			var upsertResult = upsertDocumentTagsToIndex_(docId, docTitle, docUrl, parsed);
-			if (upsertResult && upsertResult.success) {
-				summary.updated++;
-				signatureByDocId[docId] = parsed.textSignature;
-			} else {
-				summary.failed++;
-				summary.errors.push({
-					docId: docId,
-					source: docIdsBySource[docId],
-					error: upsertResult && upsertResult.error ? upsertResult.error : 'Unknown upsert error'
-				});
-			}
-		} catch (e) {
-			summary.failed++;
-			summary.errors.push({ docId: docId, source: docIdsBySource[docId], error: e.toString() });
 		}
-	});
+
+		var mutated = false;
+		allDocIds.forEach(function(docId) {
+			summary.processed++;
+
+			try {
+				var doc = DocumentApp.openById(docId);
+				var docTitle = doc.getName();
+				var docUrl = doc.getUrl();
+				var parsed = extractHashtagsFromText_(doc.getBody().getText());
+				if (signatureByDocId[docId] && signatureByDocId[docId] === parsed.textSignature) {
+					touchDocumentLastSeenAt_(rows, docId);
+					mutated = true;
+					summary.skippedUnchanged++;
+					return;
+				}
+
+				rows = replaceDocumentRowsInData_(rows, docId, docTitle, docUrl, parsed);
+				signatureByDocId[docId] = parsed.textSignature;
+				mutated = true;
+				summary.updated++;
+			} catch (e) {
+				summary.failed++;
+				summary.errors.push({ docId: docId, source: docIdsBySource[docId], error: e.toString() });
+			}
+		});
+
+		if (mutated) {
+			writeIndexRows_(sheet, rows);
+		}
+	} finally {
+		lock.releaseLock();
+	}
 
 	summary.durationMs = new Date().getTime() - started;
 	if (summary.failed > 0) {
@@ -655,23 +774,6 @@ function normalizeGoogleResourceId_(input, urlRegex) {
 
 	var idMatch = value.match(/[a-zA-Z0-9_-]{20,}/);
 	return idMatch ? idMatch[0] : '';
-}
-
-/**
- * Build a lookup map of current indexed text signatures by doc ID.
- */
-function getIndexedSignaturesByDocId_(sheet) {
-	var values = sheet.getDataRange().getValues();
-	var map = {};
-	var i;
-
-	for (i = 1; i < values.length; i++) {
-		if (values[i][1]) {
-			map[String(values[i][1])] = values[i][5] || '';
-		}
-	}
-
-	return map;
 }
 
 /**

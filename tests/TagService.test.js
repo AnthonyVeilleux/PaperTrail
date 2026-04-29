@@ -4,6 +4,7 @@ const {
   escapeTagForRegex,
   isTagBoundary,
   getRandomColor,
+  saveTagColor,
 } = require('../TagService');
 
 // ─── Globals required by TagService ──────────────────────────────────────────
@@ -15,6 +16,15 @@ beforeEach(() => {
     DigestAlgorithm: { MD5: 'MD5' },
   };
   global.Logger = { log: jest.fn() };
+  global.PropertiesService = {
+    getDocumentProperties: jest.fn().mockReturnValue({
+      getProperty: jest.fn(),
+      setProperty: jest.fn(),
+    })
+  };
+  global.Session = {
+    getActiveUser: jest.fn().mockReturnValue({ getEmail: jest.fn().mockReturnValue('test@example.com') })
+  };
 });
 
 // ─── extractHashtagsFromText_ ─────────────────────────────────────────────────
@@ -70,6 +80,42 @@ describe('extractHashtagsFromText_', () => {
   test('returns a textSignature field', () => {
     const result = extractHashtagsFromText_('#tag');
     expect(result).toHaveProperty('textSignature');
+  });
+
+  test('assigns bare M/D/YYYY date on same paragraph to tags', () => {
+    const result = extractHashtagsFromText_('#Meeting scheduled for 04/02/2026');
+    expect(result.tags['Meeting']).toBe(1);
+    expect(result.tagDates['Meeting']).toBe('2026-04-02');
+  });
+
+  test('assigns bare M-D-YYYY date on same paragraph to tags', () => {
+    const result = extractHashtagsFromText_('Review #Task on 04-24-2026');
+    expect(result.tagDates['Task']).toBe('2026-04-24');
+  });
+
+  test('assigns bare M/D/YY date on same paragraph to tags', () => {
+    const result = extractHashtagsFromText_('#Standup 4/24/26 notes');
+    expect(result.tagDates['Standup']).toBe('2026-04-24');
+  });
+
+  test('assigns bare M-D-YY date on same paragraph to tags', () => {
+    const result = extractHashtagsFromText_('#Retro 4-24-26 notes');
+    expect(result.tagDates['Retro']).toBe('2026-04-24');
+  });
+
+  test('explicit #date tag takes precedence over bare date in same paragraph', () => {
+    const result = extractHashtagsFromText_('#Task on 04/02/2026 but #4/1/26');
+    expect(result.tagDates['Task']).toBe('2026-04-01');
+  });
+
+  test('suffix @date takes precedence over bare date in same paragraph', () => {
+    const result = extractHashtagsFromText_('#Task@3/15/2026 due 04/02/2026');
+    expect(result.tagDates['Task']).toBe('2026-03-15');
+  });
+
+  test('ignores invalid bare date strings', () => {
+    const result = extractHashtagsFromText_('#Task meeting chapter-1');
+    expect(result.tagDates['Task']).toBeUndefined();
   });
 });
 
@@ -138,5 +184,39 @@ describe('getRandomColor', () => {
     for (let i = 0; i < 20; i++) {
       expect(VALID_COLORS).toContain(getRandomColor());
     }
+  });
+});
+
+// ─── saveTagColor ─────────────────────────────────────────────────────────────
+
+describe('saveTagColor', () => {
+  test('updates color on existing metadata', () => {
+    const mockProps = {
+      getProperty: jest.fn().mockReturnValue(JSON.stringify({ color: '#1A73E8', created: '2024-01-01' })),
+      setProperty: jest.fn(),
+    };
+    global.PropertiesService.getDocumentProperties.mockReturnValue(mockProps);
+
+    const result = saveTagColor('biology', '#34A853');
+    expect(result.success).toBe(true);
+    expect(mockProps.setProperty).toHaveBeenCalledWith(
+      'tag_biology',
+      expect.stringContaining('#34A853')
+    );
+  });
+
+  test('creates metadata if none exists', () => {
+    const mockProps = {
+      getProperty: jest.fn().mockReturnValue(null),
+      setProperty: jest.fn(),
+    };
+    global.PropertiesService.getDocumentProperties.mockReturnValue(mockProps);
+
+    const result = saveTagColor('newtag', '#EA4335');
+    expect(result.success).toBe(true);
+    expect(mockProps.setProperty).toHaveBeenCalledWith(
+      'tag_newtag',
+      expect.stringContaining('#EA4335')
+    );
   });
 });

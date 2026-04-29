@@ -71,6 +71,16 @@ beforeEach(() => {
   global.DriveApp = {
     searchFiles: jest.fn().mockReturnValue({ hasNext: jest.fn().mockReturnValue(false) }),
   };
+  global.CacheService = {
+    getScriptCache: jest.fn().mockReturnValue({
+      get: jest.fn().mockReturnValue(null),
+      getAll: jest.fn().mockReturnValue({}),
+      put: jest.fn(),
+      putAll: jest.fn(),
+      remove: jest.fn(),
+      removeAll: jest.fn(),
+    }),
+  };
 });
 
 // ─── dedupeStringList_ ────────────────────────────────────────────────────────

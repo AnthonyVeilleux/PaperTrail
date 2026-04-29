@@ -7,7 +7,6 @@ if (typeof module !== 'undefined') {
   module.exports = {
     onInstall: onInstall,
     onOpen: onOpen,
-    hideSidebar: hideSidebar,
     showSidebar: showSidebar,
     include: include,
     refreshAllTags: refreshAllTags,
@@ -49,15 +48,6 @@ function onOpen(e) {
     .addSeparator()
     .addItem('Export Tagged Notes', 'showExportTaggedNotesDialog')
     .addToUi();
-  
-  // Display keyboard shortcut hint to user
-  var ui = DocumentApp.getUi();
-  ui.showModelessDialog(
-    HtmlService.createHtmlOutput('<p style=\"padding:8px;font-size:12px;\"><strong>💡 Tips:</strong><br>• Press <kbd style=\"background:#f0f0f0;padding:2px 6px;border-radius:3px;border:1px solid #ccc;\">Shift+K</kbd> to toggle sidebar</p>')
-      .setWidth(350)
-      .setHeight(60),
-    'Tag Manager Tips'
-  );
 }
 
 // Show the sidebar
@@ -65,7 +55,7 @@ function showSidebar() {
   // Use templated HTML so we can include external HTML snippets (like the script file)
   var template = HtmlService.createTemplateFromFile('Index');
   var html = template.evaluate()
-    .setTitle('Tag Manager')
+    .setTitle('PaperTrail')
     .setWidth(360)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
@@ -80,18 +70,13 @@ function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
 
-// Hide/close the sidebar (called via Ctrl+K from document or sidebar)
-function hideSidebar() {
-  DocumentApp.getUi().clear();
-}
-
 /**
  * Open dialog to manage index scope using document/folder URLs or IDs.
  */
 function showIndexScopeManagerDialog() {
   var html = HtmlService.createHtmlOutputFromFile('ScopeManager')
     .setWidth(640)
-    .setHeight(560);
+    .setHeight(680);
   DocumentApp.getUi().showModalDialog(html, 'Manage Index Scope');
 }
 

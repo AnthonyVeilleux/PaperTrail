@@ -2,9 +2,91 @@
  * TagService.js - Tag extraction and management logic
  */
 
+// Matches month/day/year date strings in multiple separators.
+// All formats are month-first: M/D[/YY[YY]], M-D[-YY[YYYY]], Mon-D[-YYYY], Month-D[-YYYY]
+var DATE_PAYLOAD_RE_ = /^(?:(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?|(\d{1,2})-(\d{1,2})(?:-(\d{2,4}))?|(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|January|February|March|April|June|July|August|September|October|November|December)-(\d{1,2})(?:-(\d{4}))?)$/i;
+
+var MONTH_MAP_ = {
+  jan:1,january:1,feb:2,february:2,mar:3,march:3,apr:4,april:4,
+  may:5,jun:6,june:6,jul:7,july:7,aug:8,august:8,
+  sep:9,september:9,oct:10,october:10,nov:11,november:11,dec:12,december:12
+};
+
+function isDateString_(s) {
+  return DATE_PAYLOAD_RE_.test(s);
+}
+
+// Returns "YYYY-MM-DD" or null. For bare M/D or M-D without a year, assumes current year;
+// bumps to next year if the result is more than 6 months in the past.
+function parseDateString_(s) {
+  var m = DATE_PAYLOAD_RE_.exec(s);
+  if (!m) return null;
+  var year, month, day;
+  if (m[1]) {
+    // M/D[/YY[YY]]
+    month = parseInt(m[1], 10); day = parseInt(m[2], 10);
+    if (m[3]) {
+      year = parseInt(m[3], 10);
+      if (year < 100) year += 2000;
+    } else {
+      year = new Date().getFullYear();
+      var candidate = new Date(year, month - 1, day);
+      if ((new Date() - candidate) > 180 * 24 * 60 * 60 * 1000) year++;
+    }
+  } else if (m[4]) {
+    // M-D[-YY[YYYY]]
+    month = parseInt(m[4], 10); day = parseInt(m[5], 10);
+    if (m[6]) {
+      year = parseInt(m[6], 10);
+      if (year < 100) year += 2000;
+    } else {
+      year = new Date().getFullYear();
+      var candidate3 = new Date(year, month - 1, day);
+      if ((new Date() - candidate3) > 180 * 24 * 60 * 60 * 1000) year++;
+    }
+  } else if (m[7]) {
+    // Mon-D[-YYYY]
+    month = MONTH_MAP_[m[7].toLowerCase()];
+    day = parseInt(m[8], 10);
+    year = m[9] ? parseInt(m[9], 10) : new Date().getFullYear();
+    if (!m[9]) {
+      var candidate2 = new Date(year, month - 1, day);
+      if ((new Date() - candidate2) > 180 * 24 * 60 * 60 * 1000) year++;
+    }
+  }
+  if (!year || !month || !day || month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return year + '-' + String(month).padStart(2,'0') + '-' + String(day).padStart(2,'0');
+}
+
+// Scans a paragraph for bare date strings (not prefixed with #) and returns
+// the ISO date of the last valid one found, or null if none.
+function extractBareDateFromParagraph_(para) {
+  // Remove explicit hashtag tokens so we don't re-process #date tags as bare dates
+  var stripped = para.replace(/#[a-zA-Z0-9_.-]+(?:@[A-Za-z0-9\/\-]+)?/g, ' ');
+
+  // Slash dates require an explicit year (M/D/YY or M/D/YYYY) to avoid matching fractions like 7/8.
+  // Hyphen and text-month formats keep the optional year as they're unambiguous in prose.
+  // Look for date-like strings: M/D/YY, M/D/YYYY, M-D-YY, M-D-YYYY, M-D, Month-D, Month-D-YYYY
+  var re = /\d{1,2}\/\d{1,2}\/\d{2,4}|\d{1,2}-\d{1,2}(?:-\d{2,4})?|[A-Za-z]+-\d{1,2}(?:-\d{4})?/g;
+  var match;
+  var lastIso = null;
+
+  while ((match = re.exec(stripped)) !== null) {
+    var iso = parseDateString_(match[0]);
+    if (iso) lastIso = iso;
+  }
+  return lastIso;
+}
+
 /**
- * Extract hashtag counts and hierarchy from plain text.
- * Supports formats: #SimpleTag, #Parent.Child, #Parent.Child.GrandChild
+ * Extract hashtag counts, hierarchy, and associated dates from plain text.
+ * Supports:
+ *   #SimpleTag, #Parent.Child  (existing)
+ *   #tag@date                  (per-tag suffix, e.g. #Meeting@4/24)
+ *   #4-24-26, #Apr-24          (paragraph-scope date-tag; applies to all other tags in same paragraph)
+ *   04/02/26, 4-24-26, Apr-24  (bare dates in the same paragraph; fallback when no #date tag)
+ * Precedence: suffix > paragraph #date tag > bare date in paragraph > none.
+ * For a tag appearing multiple times with different dates, last occurrence wins.
  */
 function extractHashtagsFromText_(text) {
   var safeText = String(text || '');
@@ -12,43 +94,71 @@ function extractHashtagsFromText_(text) {
     Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, safeText)
   );
 
-  // Matches: #tag, #Parent.Child, #Category.SubCategory.Item
-  var hashtagRegex = /#([a-zA-Z0-9_.-]+)/g;
-  var matches = [];
-  var match;
-
-  while ((match = hashtagRegex.exec(safeText)) !== null) {
-    matches.push(match[1]);
-  }
-
-  if (matches.length === 0) {
-    return { tags: {}, hierarchy: {}, textSignature: textSignature };
-  }
-
   var tagCounts = {};
   var hierarchyMap = {};
+  var tagDates = {};  // tagName → ISO date string
 
-  matches.forEach(function(tag) {
-    tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+  // Regex: #<payload>  optionally followed immediately by @<datestr>
+  // payload: letters, digits, _, ., /, -; datestr: word chars + / and -
+  var tokenRe = /#([a-zA-Z0-9_.\/-]+)(?:@([A-Za-z0-9\/\-]+))?/g;
 
-    if (tag.indexOf('.') !== -1) {
-      var parts = tag.split('.');
-      for (var i = 0; i < parts.length - 1; i++) {
-        var parent = parts.slice(0, i + 1).join('.');
-        var child = parts.slice(0, i + 2).join('.');
-        if (!hierarchyMap[parent]) {
-          hierarchyMap[parent] = [];
-        }
-        if (hierarchyMap[parent].indexOf(child) === -1) {
-          hierarchyMap[parent].push(child);
+  var paragraphs = safeText.split('\n');
+
+  paragraphs.forEach(function(para) {
+    var paraMatch;
+    var paraTagNames = [];   // regular tags found in this paragraph
+    var paraSuffixDates = {}; // tagName → ISO from @suffix
+    var paragraphDate = null; // ISO from a date-tag on this paragraph
+
+    tokenRe.lastIndex = 0;
+    while ((paraMatch = tokenRe.exec(para)) !== null) {
+      var payload = paraMatch[1];
+      var suffix  = paraMatch[2] || null;
+
+      if (isDateString_(payload)) {
+        // This token is a date-tag — record as paragraph-level date, skip counting
+        var iso = parseDateString_(payload);
+        if (iso) paragraphDate = iso;
+        continue;
+      }
+
+      // Regular tag
+      tagCounts[payload] = (tagCounts[payload] || 0) + 1;
+      paraTagNames.push(payload);
+
+      if (suffix) {
+        var suffixIso = parseDateString_(suffix);
+        if (suffixIso) paraSuffixDates[payload] = suffixIso;
+      }
+
+      // Hierarchy
+      if (payload.indexOf('.') !== -1) {
+        var parts = payload.split('.');
+        for (var i = 0; i < parts.length - 1; i++) {
+          var parent = parts.slice(0, i + 1).join('.');
+          var child  = parts.slice(0, i + 2).join('.');
+          if (!hierarchyMap[parent]) hierarchyMap[parent] = [];
+          if (hierarchyMap[parent].indexOf(child) === -1) hierarchyMap[parent].push(child);
         }
       }
     }
+
+    // If no explicit #date tag was found in this paragraph, look for bare dates
+    if (!paragraphDate) {
+      paragraphDate = extractBareDateFromParagraph_(para);
+    }
+
+    // Resolve dates for this paragraph's tags (suffix wins over paragraph date; last occurrence wins)
+    paraTagNames.forEach(function(name) {
+      var resolved = paraSuffixDates[name] || paragraphDate || null;
+      if (resolved) tagDates[name] = resolved;
+    });
   });
 
   return {
     tags: tagCounts,
     hierarchy: hierarchyMap,
+    tagDates: tagDates,
     textSignature: textSignature
   };
 }
@@ -81,63 +191,68 @@ function extractHashtagsFromDocument() {
 function getAllTags() {
   try {
     Logger.log('Getting all tags...');
-    
+
     var properties = PropertiesService.getDocumentProperties();
-    var projectsData = properties.getProperty('projects');
-    var globalTagsData = properties.getProperty('globalTags');
-    
-    // Extract current hashtags from document
+    var allProps = properties.getProperties(); // single bulk read
+
     var documentTags = extractHashtagsFromDocument();
     Logger.log('Document tags: ' + JSON.stringify(documentTags));
 
-    try {
-      ensureTagBookmarks(documentTags.tags || {});
-    } catch (e) {
-      Logger.log('Error ensuring tag bookmarks: ' + e.toString());
-    }
-    
-    var bookmarkCounts = {};
-    try {
-      var bookmarkData = properties.getProperty('tag_bookmarks');
-      var bookmarkMap = bookmarkData ? JSON.parse(bookmarkData) : {};
-      Object.keys(bookmarkMap).forEach(function(tagName) {
-        bookmarkCounts[tagName] = (bookmarkMap[tagName] || []).length;
-      });
-    } catch (e) {
-      Logger.log('Error reading tag bookmarks: ' + e.toString());
-    }
+    var projects = allProps['projects'] ? JSON.parse(allProps['projects']) : getDefaultProjects();
+    var globalTags = allProps['globalTags'] ? JSON.parse(allProps['globalTags']) : getDefaultGlobalTags();
 
-    // Get or create projects
-    var projects = projectsData ? JSON.parse(projectsData) : getDefaultProjects();
-    var globalTags = globalTagsData ? JSON.parse(globalTagsData) : getDefaultGlobalTags();
-    
-    // Create a map of all existing tag metadata
     var allTagMetadata = {};
-    
-    // Update project tags with document counts
+    var newTags = [];
+    var pendingWrites = {};
+    var projectsChanged = false;
+
     projects.forEach(function(project) {
       var updatedTags = [];
-      
-      // First, update existing tags
+      var originalCount = (project.tags || []).length;
       if (project.tags) {
         project.tags.forEach(function(tag) {
           if (documentTags.tags[tag.name]) {
             tag.count = documentTags.tags[tag.name];
+            var metaKey = 'tag_' + tag.name;
+            if (allProps[metaKey]) {
+              try {
+                var meta = JSON.parse(allProps[metaKey]);
+                if (meta && meta.color) tag.color = meta.color;
+                if (meta && meta.createdAt) tag.createdAt = meta.createdAt;
+                if (meta && meta.lastAddedAt) tag.lastAddedAt = meta.lastAddedAt;
+              } catch (e) {}
+            }
+            if (!tag.color) {
+              tag.color = getRandomColor();
+              pendingWrites[metaKey] = JSON.stringify({
+                created: new Date().toISOString().split('T')[0],
+                createdTime: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+                createdAt: new Date().toISOString(),
+                author: Session.getActiveUser().getEmail() || 'Unknown',
+                lastUsed: 'Just now',
+                color: tag.color,
+                project: '',
+                description: '',
+                items: [],
+                isNested: tag.name.indexOf('.') !== -1,
+                parent: tag.name.indexOf('.') !== -1 ? tag.name.split('.').slice(0, -1).join('.') : null,
+                children: [],
+                depth: tag.name.split('.').length
+              });
+            }
+            tag.date = (documentTags.tagDates && documentTags.tagDates[tag.name]) || null;
             updatedTags.push(tag);
             allTagMetadata[tag.name] = true;
           }
         });
       }
-      
       project.tags = updatedTags;
+      if (updatedTags.length !== originalCount) projectsChanged = true;
     });
-    
-    // Add new tags from document that aren't in any project
-    var newTags = [];
+
     for (var tagName in documentTags.tags) {
       if (!allTagMetadata[tagName]) {
-        var metadata = getOrCreateTagMetadata(tagName);
-        // Check if this is a nested tag and set parent if needed
+        var metadata = getOrCreateTagMetadataCached_(tagName, allProps, pendingWrites);
         if (tagName.indexOf('.') !== -1) {
           var parts = tagName.split('.');
           if (parts.length > 1) {
@@ -145,55 +260,77 @@ function getAllTags() {
             metadata.isNested = true;
           }
         }
+        // Stamp lastAddedAt every time a tag enters (or re-enters) the doc.
+        // createdAt stays frozen at first-ever creation; lastAddedAt resets on re-add.
+        metadata.lastAddedAt = new Date().toISOString();
+        pendingWrites['tag_' + tagName] = JSON.stringify(metadata);
         newTags.push({
           name: tagName,
           count: documentTags.tags[tagName],
           color: metadata.color,
+          date: (documentTags.tagDates && documentTags.tagDates[tagName]) || null,
+          createdAt: metadata.createdAt || null,
+          lastAddedAt: metadata.lastAddedAt,
           metadata: metadata
         });
       }
     }
 
-    // Add new tags to first project or create a default project
-    if (newTags.length > 0) {
+    if (newTags.length > 0 || projectsChanged) {
       if (projects.length === 0) {
         projects = [createDefaultProject()];
       }
-      projects[0].tags = (projects[0].tags || []).concat(newTags);
-      
-      // Save updated projects
-      properties.setProperty('projects', JSON.stringify(projects));
+      if (newTags.length > 0) {
+        projects[0].tags = (projects[0].tags || []).concat(newTags);
+      }
+      pendingWrites['projects'] = JSON.stringify(projects);
     }
-    
-    // Update global tags counts
+
     globalTags.forEach(function(tag) {
       tag.count = documentTags.tags[tag.name] || 0;
+      tag.date = (documentTags.tagDates && documentTags.tagDates[tag.name]) || null;
+      var metaKey = 'tag_' + tag.name;
+      if (allProps[metaKey]) {
+        try {
+          var meta = JSON.parse(allProps[metaKey]);
+          if (meta && meta.color) tag.color = meta.color;
+          if (meta && meta.createdAt) tag.createdAt = meta.createdAt;
+        } catch (e) {}
+      }
+      if (!tag.color) {
+        tag.color = getRandomColor();
+        pendingWrites[metaKey] = JSON.stringify({
+          created: new Date().toISOString().split('T')[0],
+          createdTime: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+          createdAt: new Date().toISOString(),
+          author: Session.getActiveUser().getEmail() || 'Unknown',
+          lastUsed: 'Just now',
+          color: tag.color,
+          project: '',
+          description: '',
+          items: [],
+          isNested: tag.name.indexOf('.') !== -1,
+          parent: tag.name.indexOf('.') !== -1 ? tag.name.split('.').slice(0, -1).join('.') : null,
+          children: [],
+          depth: tag.name.split('.').length
+        });
+      }
     });
-    
-    var result = {
+
+    if (Object.keys(pendingWrites).length > 0) {
+      pendingWrites['tags_last_updated'] = new Date().toISOString();
+      properties.setProperties(pendingWrites);
+    }
+
+    Logger.log('Returning: ' + projects.length + ' projects');
+    return {
       projects: projects,
       globalTags: globalTags,
       documentTags: documentTags,
       hierarchy: documentTags.hierarchy || {},
-      bookmarkCounts: bookmarkCounts
+      lastUpdated: computeTagStateSignature_(documentTags.tags, allProps, pendingWrites, documentTags.tagDates)
     };
-    
-    // Establish nested tag relationships
-    if (documentTags.hierarchy && Object.keys(documentTags.hierarchy).length > 0) {
-      establishNestedTagRelationships(documentTags.hierarchy);
-    }
-    
-    // include last-updated timestamp allowing clients to do lightweight checks
-    try {
-      var lastUpdated = properties.getProperty('tags_last_updated') || new Date().toISOString();
-      result.lastUpdated = lastUpdated;
-    } catch (e) {
-      result.lastUpdated = new Date().toISOString();
-    }
-    
-    Logger.log('Returning: ' + projects.length + ' projects');
-    return result;
-    
+
   } catch (e) {
     Logger.log('Error in getAllTags: ' + e.toString());
     return {
@@ -202,6 +339,25 @@ function getAllTags() {
       documentTags: { tags: {}, hierarchy: {} }
     };
   }
+}
+
+// Deterministic fingerprint of the doc's tag state so the sidebar poll can
+// detect count/color/rename changes — not just the discovery of new tags.
+function computeTagStateSignature_(tagCounts, allProps, pendingWrites, tagDates) {
+  var names = Object.keys(tagCounts || {}).sort();
+  var parts = [];
+  for (var i = 0; i < names.length; i++) {
+    var name = names[i];
+    var metaKey = 'tag_' + name;
+    var raw = (pendingWrites && pendingWrites[metaKey]) || (allProps && allProps[metaKey]) || '';
+    var color = '';
+    if (raw) {
+      try { color = (JSON.parse(raw).color) || ''; } catch (e) {}
+    }
+    var date = (tagDates && tagDates[name]) || '';
+    parts.push(name + ':' + tagCounts[name] + ':' + color + ':' + date);
+  }
+  return parts.join('|');
 }
 
 /**
@@ -231,6 +387,7 @@ function getOrCreateTagMetadata(tagName) {
     var metadata = {
       created: new Date().toISOString().split('T')[0],
       createdTime: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+      createdAt: new Date().toISOString(),
       author: Session.getActiveUser().getEmail() || 'Unknown',
       lastUsed: 'Just now',
       color: getRandomColor(),
@@ -254,6 +411,7 @@ function getOrCreateTagMetadata(tagName) {
     return {
       created: new Date().toISOString().split('T')[0],
       createdTime: new Date().toLocaleTimeString(),
+      createdAt: new Date().toISOString(),
       author: 'Unknown',
       lastUsed: 'Just now',
       color: '#1A73E8',
@@ -265,10 +423,43 @@ function getOrCreateTagMetadata(tagName) {
 }
 
 /**
- * Get tag metadata
+ * Read-from-cache / write-to-pending variant used by getAllTags to avoid
+ * individual getProperty calls inside a loop.
  */
-function getTagMetadata(tagName) {
-  return getOrCreateTagMetadata(tagName);
+function getOrCreateTagMetadataCached_(tagName, propCache, pendingWrites) {
+  var key = 'tag_' + tagName;
+  var data = propCache[key];
+
+  if (data) {
+    return JSON.parse(data);
+  }
+
+  var isNested = tagName.indexOf('.') !== -1;
+  var parent = null;
+
+  if (isNested) {
+    var parts = tagName.split('.');
+    parent = parts.slice(0, -1).join('.');
+  }
+
+  var metadata = {
+    created: new Date().toISOString().split('T')[0],
+    createdTime: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+    createdAt: new Date().toISOString(),
+    author: Session.getActiveUser().getEmail() || 'Unknown',
+    lastUsed: 'Just now',
+    color: getRandomColor(),
+    project: '',
+    description: '',
+    items: [],
+    isNested: isNested,
+    parent: parent,
+    children: [],
+    depth: isNested ? tagName.split('.').length : 1
+  };
+
+  pendingWrites[key] = JSON.stringify(metadata);
+  return metadata;
 }
 
 /**
@@ -284,6 +475,25 @@ function saveTagMetadata(tagName, metadata) {
     return { success: true };
   } catch (e) {
     Logger.log('Error saving metadata: ' + e.toString());
+    return { success: false, error: e.toString() };
+  }
+}
+
+/**
+ * Update just the color for a tag.
+ */
+function saveTagColor(tagName, color) {
+  try {
+    var properties = PropertiesService.getDocumentProperties();
+    var key = 'tag_' + tagName;
+    var existing = properties.getProperty(key);
+    var metadata = existing ? JSON.parse(existing) : getOrCreateTagMetadata(tagName);
+    metadata.color = color;
+    properties.setProperty(key, JSON.stringify(metadata));
+    try { properties.setProperty('tags_last_updated', new Date().toISOString()); } catch(e) { Logger.log('Error setting tags_last_updated: ' + e.toString()); }
+    return { success: true };
+  } catch (e) {
+    Logger.log('Error saving tag color: ' + e.toString());
     return { success: false, error: e.toString() };
   }
 }
@@ -334,60 +544,6 @@ function establishNestedTagRelationships(hierarchyMap) {
 
 
 /**
- * Update tag metadata
- */
-function updateTag(tagName, updates) {
-  try {
-    Logger.log('Updating tag: ' + tagName);
-    Logger.log('Updates: ' + JSON.stringify(updates));
-    
-    var metadata = getOrCreateTagMetadata(tagName);
-    
-    // Update fields
-    if (updates.color) {
-      metadata.color = updates.color;
-    }
-    if (updates.project !== undefined) {
-      metadata.project = updates.project;
-    }
-    if (updates.description !== undefined) {
-      metadata.description = updates.description;
-    }
-    
-    // Handle tag rename
-    if (updates.tagName && updates.tagName !== tagName) {
-      // Rename tag in document
-      var renameResult = renameTagInDocument(tagName, updates.tagName);
-      if (!renameResult.success) {
-        return renameResult;
-      }
-      
-      // Delete old metadata
-      var properties = PropertiesService.getDocumentProperties();
-      properties.deleteProperty('tag_' + tagName);
-      tagName = updates.tagName;
-    }
-    
-    metadata.lastUsed = new Date().toLocaleString();
-    
-    var result = saveTagMetadata(tagName, metadata);
-    
-    if (result.success) {
-      // Update projects data
-      updateProjectsWithNewTagInfo(tagName, metadata);
-      // mark tags as updated
-      try { PropertiesService.getDocumentProperties().setProperty('tags_last_updated', new Date().toISOString()); } catch(e) { Logger.log('Error setting tags_last_updated: ' + e.toString()); }
-    }
-    
-    return result;
-  } catch (e) {
-    Logger.log('Error in updateTag: ' + e.toString());
-    return { success: false, error: e.toString() };
-  }
-}
-
-
-/**
  * Check if a tag match ends at a valid boundary
  */
 function isTagBoundary(text, endIndex) {
@@ -421,8 +577,7 @@ function renameTagInDocument(oldName, newName) {
     
     // Create regex pattern for the old tag
     var pattern = '#' + escapeTagForRegex(oldName) + '\\b';
-    var tagName = oldName; // Fix for undefined variable in original code
-    
+
     // Replace all occurrences
     var searchResult = body.findText(pattern);
     var count = 0;
@@ -459,41 +614,15 @@ function renameTagInDocument(oldName, newName) {
 
 
 /**
- * Build or refresh bookmarks for all tags in the document
+ * Jump the cursor to the Nth occurrence of a tag using findText (no bookmarks).
  */
-function buildTagBookmarks(documentTags) {
-  var doc = DocumentApp.getActiveDocument();
-  var body = doc.getBody();
-  var properties = PropertiesService.getDocumentProperties();
-
-  var tags = documentTags || extractHashtagsFromDocument().tags || {};
-  var tagNames = Object.keys(tags);
-  var bookmarksByTag = {};
-
-  // Remove previously created tag bookmarks
+function jumpToTagBookmark(tagName, occurrenceIndex) {
   try {
-    var existing = properties.getProperty('tag_bookmarks');
-    if (existing) {
-      var existingMap = JSON.parse(existing);
-      Object.keys(existingMap).forEach(function(tagName) {
-        if (existingMap[tagName]) {
-          existingMap[tagName].forEach(function(bookmarkId) {
-            try {
-              var bookmark = doc.getBookmark(bookmarkId);
-              if (bookmark) bookmark.remove();
-            } catch(e) {}
-          });
-        }
-      });
-    }
-  } catch (e) {
-    Logger.log('Error removing existing tag bookmarks: ' + e.toString());
-  }
-
-  // Create new bookmarks for each tag occurrence
-  tagNames.forEach(function(tagName) {
+    var doc = DocumentApp.getActiveDocument();
+    var body = doc.getBody();
     var pattern = '#' + escapeTagForRegex(tagName);
     var searchResult = body.findText(pattern);
+    var occurrences = [];
 
     while (searchResult !== null) {
       var element = searchResult.getElement();
@@ -501,85 +630,28 @@ function buildTagBookmarks(documentTags) {
         var textElement = element.asText();
         var text = textElement.getText();
         if (isTagBoundary(text, searchResult.getEndOffsetInclusive())) {
-          var position = doc.newPosition(textElement, searchResult.getStartOffset());
-          var bookmark = doc.addBookmark(position);
-          if (bookmark) {
-            if (!bookmarksByTag[tagName]) {
-              bookmarksByTag[tagName] = [];
-            }
-            bookmarksByTag[tagName].push(bookmark.getId());
-          }
+          occurrences.push({ element: textElement, offset: searchResult.getStartOffset() });
         }
       }
       searchResult = body.findText(pattern, searchResult);
     }
-  });
 
-  properties.setProperty('tag_bookmarks', JSON.stringify(bookmarksByTag));
-  properties.setProperty('tag_bookmarks_last_updated', new Date().toISOString());
-  properties.setProperty('tag_bookmarks_hash', JSON.stringify(tags));
-
-  return bookmarksByTag;
-}
-
-/**
- * Ensure bookmarks are up to date with the current document tags
- */
-function ensureTagBookmarks(documentTags) {
-  var properties = PropertiesService.getDocumentProperties();
-  var tags = documentTags || extractHashtagsFromDocument().tags || {};
-  var currentHash = JSON.stringify(tags);
-  var savedHash = properties.getProperty('tag_bookmarks_hash');
-  var existing = properties.getProperty('tag_bookmarks');
-
-  if (existing && savedHash === currentHash) {
-    return;
-  }
-
-  buildTagBookmarks(tags);
-}
-
-/**
- * Jump the cursor to a bookmark for the given tag
- */
-function jumpToTagBookmark(tagName, occurrenceIndex) {
-  try {
-    var doc = DocumentApp.getActiveDocument();
-    var properties = PropertiesService.getDocumentProperties();
-    var bookmarksData = properties.getProperty('tag_bookmarks');
-
-    if (!bookmarksData) {
-      ensureTagBookmarks();
-      bookmarksData = properties.getProperty('tag_bookmarks');
-    }
-
-    var map = bookmarksData ? JSON.parse(bookmarksData) : {};
-    var list = map[tagName] || [];
-
-    if (!list.length) {
-      ensureTagBookmarks();
-      map = JSON.parse(properties.getProperty('tag_bookmarks') || '{}');
-      list = map[tagName] || [];
-    }
-
-    if (!list.length) {
-      return { success: false, error: 'No bookmarks found for tag.' };
+    if (!occurrences.length) {
+      return { success: false, error: 'Tag not found in document.' };
     }
 
     var index = typeof occurrenceIndex === 'number' ? occurrenceIndex : 0;
-    if (index < 0 || index >= list.length) {
+    if (index < 0 || index >= occurrences.length) {
       index = 0;
     }
 
-    var bookmark = doc.getBookmark(list[index]);
-    if (!bookmark) {
-      return { success: false, error: 'Bookmark not found.' };
-    }
-
-    doc.setCursor(bookmark.getPosition());
-    return { success: true, count: list.length, index: index };
+    var target = occurrences[index];
+    var rangeBuilder = doc.newRange();
+    rangeBuilder.addElement(target.element, target.offset, target.offset + tagName.length);
+    doc.setSelection(rangeBuilder.build());
+    return { success: true, count: occurrences.length, index: index };
   } catch (e) {
-    Logger.log('Error jumping to tag bookmark: ' + e.toString());
+    Logger.log('Error jumping to tag: ' + e.toString());
     return { success: false, error: e.toString() };
   }
 }
@@ -634,11 +706,11 @@ function getTagOccurrences(tagName, maxChars) {
           if (!snippet) {
             var parent = textElement.getParent();
             if (parent && parent.getType && parent.getType() === DocumentApp.ElementType.PARAGRAPH) {
-              var body = parent.getParent();
-              if (body && body.getChildIndex) {
-                var parentIndex = body.getChildIndex(parent);
-                for (var i = parentIndex + 1; i < body.getNumChildren(); i++) {
-                  var sibling = body.getChild(i);
+              var docBody = parent.getParent();
+              if (docBody && docBody.getChildIndex) {
+                var parentIndex = docBody.getChildIndex(parent);
+                for (var i = parentIndex + 1; i < docBody.getNumChildren(); i++) {
+                  var sibling = docBody.getChild(i);
                   if (sibling.getType && sibling.getType() === DocumentApp.ElementType.PARAGRAPH) {
                     var siblingText = sibling.asParagraph().getText().replace(/\s+/g, ' ').trim();
                     if (isMeaningfulSnippetText_(siblingText)) {
@@ -685,6 +757,7 @@ if (typeof module !== 'undefined') {
     escapeTagForRegex: escapeTagForRegex,
     isTagBoundary: isTagBoundary,
     getRandomColor: getRandomColor,
+    saveTagColor: saveTagColor,
   };
 }
 

@@ -103,7 +103,7 @@ test.describe('Index sidebar - autocomplete', () => {
     await page.fill('#searchInput', 'bio');
     await expect(page.locator('#autocompleteList')).toHaveClass(/show/, { timeout: 3000 });
 
-    await page.locator('.header-title').click();
+    await page.locator('.content').click();
     await expect(page.locator('#autocompleteList')).not.toHaveClass(/show/);
   });
 
