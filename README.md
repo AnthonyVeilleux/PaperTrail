@@ -10,11 +10,11 @@ PaperTrail is a Google Workspace / Drive add-on that extends Drive/Docs function
 
 - Zihan Wu (Client) - Contact: zihan.wu@maine.edu
 
-- Ben Yandell (Client Liason / Developer) - Contact: benjamin.yandell@maine.edu
+- Ben Yandell (Client Liaison / Developer) - Contact: benjamin.yandell@maine.edu
 
-- Robert Kulow (Developer) - Contact: robert.kulow@maine.edu
+- Robert Kulow (Scrum Master / Developer) - Contact: robert.kulow@maine.edu
 
-- Anthony Veilleux (Developer) - Contact: anthony.veilleux@maine.edu
+- Anthony Veilleux (DevOps Engineer / Developer) - Contact: anthony.veilleux@maine.edu
 
 - Arius Ahmad (Developer) - Contact: arius.ahmad@maine.edu
 
