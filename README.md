@@ -1,159 +1,135 @@
-# PaperTrail — Quick Overview & Setup
+# PaperTrail
 
-## Project Overview
+PaperTrail is a Google Docs add-on for researchers and note-takers who organize their work with hashtags. It scans the active document for `#tags`, surfaces them in a sidebar, indexes tags across a configurable set of documents into a Google Sheet, and exports tagged paragraphs to a new Doc.
 
-PaperTrail is a Google Workspace / Drive add-on that extends Drive/Docs functionality with custom tools. The code lives in GitHub and runs on Google Apps Script. Each developer tests in their own personal Apps Script project, keeping production stable.
+## Features
 
-**Important:** The GitHub repository is the **source of truth** for all code changes. While individual developers work in their personal Apps Script projects for testing, all official code must be committed to this GitHub repository. Never make changes directly in the Apps Script web editor that you intend to keep—always work locally and push changes through Git.
+- **Hashtag tag manager sidebar** — lists every `#tag` in the active document, grouped and searchable, with sort and date-range filters.
+- **Date extraction** — pulls dates out of hashtag tokens (e.g. `#2026-04-30`) and surrounding paragraph context, displayed as date badges next to tags.
+- **Cross-document index** — a Google Sheet acts as a tag index across multiple documents, kept in sync by a backfill job (`Sync Indexed Docs`).
+- **Configurable index scope** — choose which folders or individual docs are indexed, via the `Index Scope` menu or the Scope Manager modal.
+- **Tagged-notes export** — export paragraphs matching a tag selection to a new Google Doc.
+- **Keyboard shortcut** — `Shift+K` while the sidebar is focused toggles it closed.
 
-## Project Team:
+## Project Team
 
-- Zihan Wu (Client) - Contact: zihan.wu@maine.edu
+- Zihan Wu (Client) — zihan.wu@maine.edu
+- Ben Yandell (Client Liaison / Developer) — benjamin.yandell@maine.edu
+- Robert Kulow (Scrum Master / Developer) — robert.kulow@maine.edu
+- Anthony Veilleux (DevOps Engineer / Developer) — anthony.veilleux@maine.edu
+- Arius Ahmad (Developer) — arius.ahmad@maine.edu
+- Vasu Patel (Developer) — vasu.patel@maine.edu
 
-- Ben Yandell (Client Liaison / Developer) - Contact: benjamin.yandell@maine.edu
+## Architecture
 
-- Robert Kulow (Scrum Master / Developer) - Contact: robert.kulow@maine.edu
+The add-on is split into backend Apps Script services and HTML-templated UI:
 
-- Anthony Veilleux (DevOps Engineer / Developer) - Contact: anthony.veilleux@maine.edu
+| File | Role |
+| --- | --- |
+| `Code.js` | Entry points: `onOpen`/`onInstall` menu wiring, sidebar show/hide, menu handlers. |
+| `TagService.js` | Hashtag extraction from the active document, date parsing from tokens and paragraph context, tag state signature for change detection. |
+| `CrossDocIndexService.js` | Reads/writes the cross-doc tag index spreadsheet; `backfillContentFolderToIndex` walks the configured scope and upserts tag rows. |
+| `ProjectService.js` | Persists index-scope configuration (folder IDs, explicit doc IDs) in Script Properties. |
+| `ExportService.js` | Builds the "Tagged Notes" export Doc from selected tags. |
+| `Index.html` + `Scripts.html` + `Stylesheet.html` | The sidebar UI, composed via `<?!= include('...') ?>` from `Code.js`'s `include()` helper. |
+| `ScopeManager.html` | Modal dialog for managing the index scope. |
+| `ExportDialog.html` | Modal dialog for the export flow. |
+| `appsscript.json` | Add-on manifest — declares this as a Docs add-on and requests Drive + Spreadsheets + Documents OAuth scopes. |
+| `Documents/architecture.mmd` | Mermaid system architecture diagram. |
+| `tests/` | Jest unit tests; `tests/e2e/` runs Playwright against an HTML build produced by `tests/build-html.js`. |
 
-- Arius Ahmad (Developer) - Contact: arius.ahmad@maine.edu
+The GitHub repository is the **source of truth**. Each developer pushes their working copy into a personal Apps Script project for testing — never make changes you intend to keep directly in the Apps Script web editor.
 
-- Vasu Patel (Developer) - Contact: vasu.patel@maine.edu
+## Menus installed by the add-on
 
-## What is clasp?
-
-**clasp** (Command Line Apps Script Projects) is Google's official command-line tool for managing Google Apps Script projects. It allows developers to:
-
-- Create, edit, and manage Apps Script projects from the terminal
-- Push code from local files to Apps Script
-- Pull code from Apps Script to local files
-- Open Apps Script projects in the web editor
-- Deploy and manage versions
-
-Think of clasp as Git for Google Apps Script—it bridges the gap between local development and the Google Apps Script cloud environment.
+- **PaperTrail** (add-on menu): `Open Tag Sidebar`, `Refresh Tags`, `Sync Indexed Docs`, `Index Scope` (submenu), `Export Tagged Notes`.
+- **Index Scope** (top-level menu): `Manage Scope`, `Add Folder ID`, `Add Parent Folder Of Current Doc`, `Add Current Document`, `Add Document ID`.
 
 ## Prerequisites
 
-- Git installed on your machine
-- Google account with access to Google Apps Script
-- Node.js and npm (for clasp CLI tool)
+- Git
+- Node.js + npm (for `clasp` and the test suites)
+- A Google account with access to Google Apps Script
+- `@google/clasp` installed globally: `npm install -g @google/clasp`
 
-## Development Environment Setup
+## Setup
 
-### 1. Install Google Apps Script CLI (clasp)
-
-```bash
-npm install -g @google/clasp
-```
-
-### 2. Clone the Repository
+### 1. Clone and install
 
 ```bash
 git clone https://github.com/AnthonyVeilleux/PaperTrail.git
 cd PaperTrail
+npm install
 ```
 
-### 3. Login to Google via clasp
+### 2. Authenticate clasp
 
 ```bash
 clasp login
 ```
 
-This will open your browser to authenticate with your Google account.
+### 3. Create your personal dev Apps Script project
 
-### 4. Create Your Personal Apps Script Project
+Because PaperTrail is a Docs Editor add-on (`appsscript.json` declares `addOns.docs`), the most reliable way to test it is **container-bound to a test Google Doc** — `onOpen` and `DocumentApp.getUi()` only fire from within a Doc.
 
-You have two options for creating your Apps Script project:
+**Recommended (container-bound):**
 
-#### Option A: Using clasp (Command Line)
+1. Create a new Google Doc you'll use for testing.
+2. In that Doc: `Extensions → Apps Script`. Rename the project `<Your Name> - Dev Environment`.
+3. Copy the script ID from the URL (`https://script.google.com/d/SCRIPT_ID/edit`).
+4. From this repo:
+   ```bash
+   clasp clone SCRIPT_ID
+   ```
+   This will overwrite the local `.clasp.json` with one pointing at your project.
+
+**Alternative (standalone):**
 
 ```bash
 clasp create --type standalone --title "<Your Name> - Dev Environment"
 ```
+A standalone project works for editing/pushing code but you'll need to bind/test it manually from a Doc.
 
-#### Option B: Using Google Apps Script Web Interface (GUI)
+> `.clasp.json` is gitignored and contains your personal script ID — never commit it.
 
-1. Go to [script.google.com](https://script.google.com)
-2. Click "New Project"
-3. Rename the project to `<Your Name> - Dev Environment`
-4. Note the script ID from the URL (looks like: `https://script.google.com/d/YOUR_SCRIPT_ID/edit`)
-5. In your terminal, clone the project locally:
-   ```bash
-   clasp clone YOUR_SCRIPT_ID
-   ```
-
-**Important:** Do not commit `.clasp.json` to the repository—it's private to your project and contains your personal Apps Script project ID.
-
-### 5. Pull the Latest Code
-
-```bash
-git pull
-```
-
-### 6. Start Working on a Feature
-
-Create a new feature branch for your changes:
-
-```bash
-git checkout -b feature/<your-feature-name>
-```
-
-### 7. Test Your Changes
-
-Deploy your code to your personal Apps Script project:
+### 4. Push code to your Apps Script project
 
 ```bash
 clasp push
-```
-
-Open your Apps Script project in the browser to test:
-
-```bash
 clasp open
 ```
 
-### 8. Submit Changes
+In the Doc, reload, accept the OAuth consent (Drive + Spreadsheets + Documents scopes), then use the **PaperTrail** menu.
 
-When your feature is ready:
+## Development workflow
 
-1. Commit your changes to your feature branch
-2. Push the branch to GitHub
-3. Submit a Pull Request for review
+1. **GitHub is the source of truth** — all official code changes go through this repo.
+2. **Branch from `main`** — name branches `feat/<short-name>` (matches existing history; `fix/`, `chore/` etc. as appropriate).
+3. **Pull before branching** — `git pull` on `main` first.
+4. **Push to your dev Apps Script project after every edit** — `clasp push`.
+5. **Conventional Commits** — commits follow `type(scope): subject`, e.g. `feat(sidebar): add date sort, range filter panel`.
+6. **Open a PR for review** — never commit directly to `main`.
+
+## Testing
 
 ```bash
-git add .
-git commit -m "Description of your changes"
-git push origin feature/<your-feature-name>
+npm test            # Jest unit tests (TagService, CrossDocIndexService, ExportService, ProjectService, Code)
+npm run test:e2e    # Builds a static HTML bundle, then runs Playwright against the sidebar UI
+npm run test:all    # Both
 ```
 
-## Development Workflow
-
-1. **GitHub is the source of truth** - All official code changes must go through this repository
-2. **Always work on feature branches** - Never commit directly to `main`
-3. **Test thoroughly** - Use your personal Apps Script project for testing only
-4. **Keep .clasp.json private** - This file should never be committed to the repo
-5. **Pull before starting** - Always get the latest changes before creating a new feature branch
-6. **Submit PRs for review** - All code changes should go through pull request review
-
-## Project Structure
-
-- `Code.js` - Main Google Apps Script code
-- `appsscript.json` - Apps Script manifest file
-- `Documents/` - Project documentation and resources
-
-## Getting Help
-
-- Check the Google Apps Script documentation: https://developers.google.com/apps-script
-- Review existing code and documentation in the `Documents/` folder
-- Ask questions in pull request reviews
+Jest ignores `tests/e2e/` (configured in `package.json`).
 
 ## Troubleshooting
 
-### clasp command not found
-Make sure you have Node.js installed and run `npm install -g @google/clasp`
+- **`clasp` not found** — install Node.js, then `npm install -g @google/clasp`.
+- **Auth issues** — `clasp logout && clasp login`.
+- **`clasp push` errors** — confirm `.clasp.json` exists and contains your personal script ID.
+- **Menus don't appear in the Doc** — the script must be bound to (or installed into) a Google Doc; reload the Doc after `clasp push`.
+- **Index Sync errors about a missing spreadsheet** — open the Scope Manager and confirm an index spreadsheet is configured before running `Sync Indexed Docs`.
 
-### Authentication issues
-Run `clasp logout` followed by `clasp login` to re-authenticate
+## Getting help
 
-### Push errors
-Ensure your `.clasp.json` file exists and contains the correct script ID from your personal project
+- Apps Script docs: https://developers.google.com/apps-script
+- Project specs and design docs: see `Documents/` (SD, SRS, UIDD PDFs and the architecture Mermaid diagram).
+- Ask questions in PR review threads.
