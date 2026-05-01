@@ -1,0 +1,46 @@
+%% PaperTrail — Architecture Diagram
+
+flowchart TB
+    User([User in Google Docs])
+
+    subgraph FE["Frontend (Sidebar & Dialogs)"]
+        UI["Tag Sidebar · Scope Manager · Export Dialog"]
+    end
+
+    subgraph BE["Backend (Apps Script)"]
+        Tags["Tag Service"]
+        Index["Cross-Doc Index"]
+        Export["Export Service"]
+    end
+
+    subgraph ST["Storage"]
+        Doc[("Google Doc")]
+        Sheet[("Index Spreadsheet")]
+        Props[("Properties + Cache")]
+        Drive[("Drive Folders")]
+    end
+
+    User -->|opens add-on| UI
+    User -->|types #hashtags & notes| Doc
+    UI -->|google.script.run| Tags
+    UI -->|google.script.run| Index
+    UI -->|google.script.run| Export
+
+    Doc -->|read tags| Tags
+    Tags --> Doc
+    Tags --> Props
+    Index --> Sheet
+    Index --> Drive
+    Index --> Props
+    Export --> Doc
+    Export --> Drive
+
+    classDef user fill:#fde68a,stroke:#b45309,color:#1f2937,stroke-width:2px
+    classDef fe fill:#dbeafe,stroke:#1d4ed8,color:#1e3a8a
+    classDef be fill:#dcfce7,stroke:#15803d,color:#14532d
+    classDef st fill:#fce7f3,stroke:#be185d,color:#831843
+
+    class User user
+    class UI fe
+    class Tags,Index,Export be
+    class Doc,Sheet,Props,Drive st
